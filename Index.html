@@ -1,0 +1,3039 @@
+<!DOCTYPE html>
+<html lang="it">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transformable Vehicle Builder (Economy Edition)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        window.joltReadyPromise = import('https://www.unpkg.com/jolt-physics@1.0.0/dist/jolt-physics.wasm-compat.js')
+            .then(module => module.default())
+            .then(Jolt => {
+                window.Jolt = Jolt;
+                return Jolt;
+            });
+    </script>
+    <style>
+        :root {
+            --panel-bg: rgba(8, 15, 28, 0.78);
+            --panel-border: rgba(186, 201, 224, 0.22);
+            --text-main: #f8fafc;
+            --text-muted: #aebdd0;
+            --cyan: #38bdf8;
+            --green: #34d399;
+            --red: #fb7185;
+            --amber: #fbbf24;
+        }
+
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            font-family: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+            user-select: none;
+            color: var(--text-main);
+            background: #07111d;
+        }
+
+        body {
+            position: fixed;
+            inset: 0;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        button,
+        input,
+        select {
+            font: inherit;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .interface-shell {
+            position: fixed;
+            inset: 0;
+            z-index: 10;
+            display: grid;
+            grid-template-rows: auto 1fr auto;
+            gap: clamp(10px, 1.8vh, 18px);
+            padding: clamp(10px, 1.5vw, 18px);
+            overflow: hidden;
+            pointer-events: none;
+        }
+
+        .hud-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            min-height: 0;
+        }
+
+        .ui-panel {
+            pointer-events: auto;
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            box-shadow: 0 18px 50px rgba(2, 6, 23, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(18px) saturate(1.2);
+            -webkit-backdrop-filter: blur(18px) saturate(1.2);
+            color: var(--text-main);
+        }
+
+        .pointer-events-none {
+            pointer-events: none;
+        }
+
+        .controls-panel {
+            width: min(342px, calc(100vw - 28px));
+            display: grid;
+            gap: 10px;
+            padding: 14px;
+            border-radius: 18px;
+        }
+
+        .panel-heading {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .app-title {
+            margin: 0;
+            font-size: 1.05rem;
+            line-height: 1.1;
+            font-weight: 800;
+            letter-spacing: 0;
+        }
+
+        .app-subtitle {
+            margin: 4px 0 0;
+            color: var(--text-muted);
+            font-size: 0.78rem;
+        }
+
+        .mode-pill {
+            flex: 0 0 auto;
+            padding: 5px 9px;
+            border-radius: 999px;
+            border: 1px solid rgba(56, 189, 248, 0.35);
+            background: rgba(14, 165, 233, 0.12);
+            color: #bae6fd;
+            font-size: 0.68rem;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+
+        .budget-strip {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 11px 12px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.18), rgba(37, 99, 235, 0.12));
+            border: 1px solid rgba(52, 211, 153, 0.26);
+        }
+
+        .budget-label,
+        .control-label {
+            color: var(--text-muted);
+            font-size: 0.78rem;
+            font-weight: 700;
+        }
+
+        .budget-value {
+            color: var(--green);
+            font-size: 1.35rem;
+            line-height: 1;
+            font-weight: 900;
+        }
+
+        .budget-value.budget-negative {
+            color: var(--red);
+        }
+
+        .control-section {
+            display: grid;
+            gap: 7px;
+            padding: 10px 11px;
+            border-radius: 14px;
+            background: rgba(15, 23, 42, 0.48);
+            border: 1px solid rgba(148, 163, 184, 0.15);
+        }
+
+        .control-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .control-value {
+            color: #c7d2fe;
+            font-size: 0.75rem;
+            font-weight: 850;
+            white-space: nowrap;
+        }
+
+        .range-input {
+            width: 100%;
+            height: 18px;
+            accent-color: var(--cyan);
+            cursor: pointer;
+        }
+
+        .range-input.power {
+            accent-color: var(--amber);
+        }
+
+        .range-input.slider {
+            accent-color: #22c55e;
+        }
+
+        .rotor-select {
+            min-width: 0;
+            max-width: 170px;
+            padding: 5px 8px;
+            border-radius: 10px;
+            border: 1px solid rgba(125, 211, 252, 0.3);
+            background: rgba(2, 8, 23, 0.62);
+            color: #e0f2fe;
+            outline: none;
+        }
+
+        .action-panel {
+            display: grid;
+            gap: 9px;
+            padding: 10px;
+            border-radius: 16px;
+            width: min(236px, calc(100vw - 28px));
+        }
+
+        .action-btn,
+        .drive-btn {
+            border: 0;
+            border-radius: 12px;
+            color: white;
+            font-weight: 800;
+            cursor: pointer;
+            transition: transform 0.16s ease, filter 0.16s ease, box-shadow 0.16s ease;
+        }
+
+        .action-btn {
+            min-width: 0;
+            padding: 10px 14px;
+            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.25);
+        }
+
+        .action-btn.compact {
+            padding: 9px 10px;
+            font-size: 0.78rem;
+        }
+
+        .drive-btn {
+            padding: 8px 13px;
+            font-size: 0.82rem;
+        }
+
+        .action-btn:hover,
+        .drive-btn:hover {
+            transform: translateY(-1px);
+            filter: brightness(1.08);
+        }
+
+        .action-primary,
+        .drive-primary {
+            background: linear-gradient(135deg, #0ea5e9, #2563eb);
+        }
+
+        .action-danger,
+        .drive-danger {
+            background: linear-gradient(135deg, #f97316, #e11d48);
+        }
+
+        .action-secondary {
+            background: linear-gradient(135deg, #475569, #1e293b);
+        }
+
+        .action-success {
+            background: linear-gradient(135deg, #059669, #047857);
+        }
+
+        .io-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 7px;
+        }
+
+        .drive-panel {
+            align-self: center;
+            justify-self: center;
+            max-width: min(560px, calc(100vw - 28px));
+            padding: 14px 16px;
+            border-radius: 18px;
+            text-align: center;
+        }
+
+        .drive-title {
+            margin: 0 0 8px;
+            color: #fde68a;
+            font-weight: 900;
+        }
+
+        .drive-copy {
+            margin: 3px 0;
+            color: #dbeafe;
+            font-size: 0.85rem;
+        }
+
+        .drive-copy.accent {
+            color: #fed7aa;
+            font-weight: 800;
+        }
+
+        .drive-copy.info {
+            color: #a5f3fc;
+            font-weight: 800;
+        }
+
+        .drive-copy.note {
+            color: #bae6fd;
+            font-size: 0.74rem;
+        }
+
+        .drive-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .tool-dock {
+            align-self: end;
+            justify-self: center;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8px;
+            max-width: min(650px, calc(100vw - 20px));
+            padding: 10px;
+            border-radius: 18px;
+            overflow: visible;
+        }
+
+        .tool-btn {
+            min-width: 112px;
+            height: 84px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            padding: 8px 10px;
+            border-radius: 14px;
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            background: rgba(15, 23, 42, 0.72);
+            color: var(--text-main);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+            cursor: pointer;
+            transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+        }
+
+        .tool-btn:hover {
+            transform: translateY(-2px);
+            border-color: rgba(56, 189, 248, 0.75);
+            background: rgba(30, 41, 59, 0.82);
+        }
+
+        .selected-tool {
+            border-color: rgba(56, 189, 248, 0.95) !important;
+            background: linear-gradient(180deg, rgba(37, 99, 235, 0.36), rgba(14, 165, 233, 0.18));
+            box-shadow: 0 14px 34px rgba(14, 165, 233, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+        }
+
+        .tool-name {
+            font-size: 0.72rem;
+            line-height: 1.05;
+            font-weight: 900;
+            text-align: center;
+        }
+
+        .tool-meta {
+            color: #bfdbfe;
+            font-size: 0.62rem;
+            line-height: 1;
+            font-weight: 800;
+        }
+
+        .tool-price {
+            color: #fecaca;
+            font-size: 0.68rem;
+            line-height: 1;
+            font-weight: 850;
+        }
+
+        .variant-group {
+            position: relative;
+            overflow: visible;
+        }
+
+        .variant-menu {
+            position: absolute;
+            left: 50%;
+            bottom: calc(100% + 10px);
+            z-index: 30;
+            min-width: 144px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding: 8px;
+            border-radius: 14px;
+            border: 1px solid rgba(148, 163, 184, 0.24);
+            background: rgba(3, 7, 18, 0.94);
+            box-shadow: 0 18px 45px rgba(2, 6, 23, 0.45);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            opacity: 0;
+            pointer-events: none;
+            transform: translate(-50%, 8px) scale(0.98);
+            transform-origin: bottom center;
+            transition: opacity 0.15s ease, transform 0.15s ease;
+        }
+
+        .variant-menu::after {
+            content: "";
+            position: absolute;
+            left: 50%;
+            bottom: -6px;
+            width: 10px;
+            height: 10px;
+            transform: translateX(-50%) rotate(45deg);
+            background: rgba(3, 7, 18, 0.94);
+            border-right: 1px solid rgba(148, 163, 184, 0.24);
+            border-bottom: 1px solid rgba(148, 163, 184, 0.24);
+        }
+
+        .variant-group:hover .variant-menu,
+        .variant-group:focus-within .variant-menu {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translate(-50%, 0) scale(1);
+        }
+
+        .variant-option {
+            border: 1px solid transparent;
+            border-radius: 10px;
+            background: transparent;
+            color: #dbeafe;
+            padding: 8px 10px;
+            font-size: 0.74rem;
+            text-align: left;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .variant-option:hover {
+            border-color: rgba(56, 189, 248, 0.4);
+            background: rgba(14, 165, 233, 0.1);
+        }
+
+        .variant-option.active {
+            border-color: rgba(96, 165, 250, 0.8);
+            background: rgba(59, 130, 246, 0.22);
+            color: white;
+        }
+
+        @media (max-width: 720px) {
+            .hud-top {
+                gap: 8px;
+            }
+
+            .controls-panel {
+                width: calc(100vw - 150px);
+                min-width: 0;
+                padding: 10px;
+                gap: 8px;
+            }
+
+            .action-panel {
+                width: 130px;
+                padding: 8px;
+                gap: 7px;
+            }
+
+            .action-btn {
+                min-width: 0;
+                width: 100%;
+                padding: 9px 8px;
+                font-size: 0.72rem;
+            }
+
+            .action-btn.compact {
+                padding: 8px 6px;
+                font-size: 0.66rem;
+            }
+
+            .tool-btn {
+                min-width: 96px;
+                height: 74px;
+                padding: 7px 8px;
+            }
+
+            .tool-name {
+                font-size: 0.66rem;
+            }
+        }
+
+        @media (max-height: 680px) {
+            .interface-shell {
+                gap: 8px;
+                padding: 8px;
+            }
+
+            .controls-panel {
+                padding: 10px;
+            }
+
+            .control-section {
+                gap: 5px;
+                padding: 8px 9px;
+            }
+
+            .app-subtitle {
+                display: none;
+            }
+
+            .tool-dock {
+                padding: 8px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- UI Overlay -->
+    <div class="interface-shell pointer-events-none">
+
+        <!-- Header & Economy -->
+        <div class="hud-top">
+            <div class="ui-panel controls-panel">
+                <div class="panel-heading">
+                    <div>
+                        <h1 class="app-title">Vehicle Builder</h1>
+                        <p class="app-subtitle">Assemble, tune, and test drive.</p>
+                    </div>
+                    <span class="mode-pill">Build</span>
+                </div>
+                <div class="budget-strip">
+                    <span class="budget-label">Budget</span>
+                    <span id="budget-display" class="budget-value">50000 EUR</span>
+                </div>
+                <div class="control-section">
+                    <div class="control-row">
+                        <span class="control-label">Wheel Power</span>
+                        <span id="power-display" class="control-value">100%</span>
+                    </div>
+                    <input id="power-slider" type="range" min="20" max="300" step="5" value="100"
+                        class="range-input power">
+                </div>
+                <div class="control-section">
+                    <div class="control-row">
+                        <span class="control-label">Rotor</span>
+                        <select id="rotor-target-select"
+                            class="rotor-select">
+                            <option value="new">New Rotors</option>
+                        </select>
+                    </div>
+                    <div class="control-row">
+                        <span class="control-label">Rotor Angle</span>
+                        <span id="rotor-angle-display" class="control-value">90 deg</span>
+                    </div>
+                    <input id="rotor-angle-slider" type="range" min="-180" max="180" step="15" value="90"
+                        class="range-input">
+                    <div class="control-row">
+                        <span class="control-label">Rotor Delay</span>
+                        <span id="rotor-delay-display" class="control-value">0s</span>
+                    </div>
+                    <input id="rotor-delay-slider" type="range" min="0" max="5" step="0.25" value="0"
+                        class="range-input">
+                    <div class="control-row">
+                        <span class="control-label">Rotor Speed</span>
+                        <span id="rotor-speed-display" class="control-value">90 deg/s</span>
+                    </div>
+                    <input id="rotor-speed-slider" type="range" min="15" max="360" step="15" value="90"
+                        class="range-input">
+                </div>
+                <div class="control-section">
+                    <div class="control-row">
+                        <span class="control-label">Slider</span>
+                        <select id="slider-target-select"
+                            class="rotor-select">
+                            <option value="new">New Sliders</option>
+                        </select>
+                    </div>
+                    <div class="control-row">
+                        <span class="control-label">Slider Delay</span>
+                        <span id="slider-delay-display" class="control-value">0s</span>
+                    </div>
+                    <input id="slider-delay-slider" type="range" min="0" max="5" step="0.25" value="0"
+                        class="range-input slider">
+                    <div class="control-row">
+                        <span class="control-label">Slider Speed</span>
+                        <span id="slider-speed-display" class="control-value">2 blocks/s</span>
+                    </div>
+                    <input id="slider-speed-slider" type="range" min="0.25" max="6" step="0.25" value="2"
+                        class="range-input slider">
+                </div>
+            </div>
+
+            <div class="ui-panel action-panel">
+                <button id="btn-drive" class="action-btn action-primary">
+                    Drive Mode
+                </button>
+                <div class="io-grid">
+                    <button id="btn-save" class="action-btn compact action-success">
+                        Save
+                    </button>
+                    <button id="btn-load" class="action-btn compact action-secondary">
+                        Load
+                    </button>
+                    <button id="btn-export" class="action-btn compact action-secondary">
+                        Export
+                    </button>
+                    <button id="btn-import" class="action-btn compact action-secondary">
+                        Import
+                    </button>
+                </div>
+                <button id="btn-reset" class="action-btn action-danger">
+                    Reset Builder
+                </button>
+                <input id="vehicle-file-input" class="hidden" type="file" accept=".json,application/json,text/plain">
+            </div>
+        </div>
+
+        <!-- Drive Controls Info (Hidden in Build Mode) -->
+        <div id="drive-info" class="hidden ui-panel drive-panel">
+            <h3 class="drive-title">Driving Controls</h3>
+            <p class="drive-copy">W A S D = movement and steering</p>
+            <p class="drive-copy accent">SPACE = activate thrusters</p>
+            <p class="drive-copy info">E / Q = activate rotors forward / reverse</p>
+            <p class="drive-copy info">Z / C = activate sliders forward / reverse</p>
+            <p class="drive-copy note">Blue arrows show exhaust direction; the vehicle moves opposite.</p>
+            <div class="drive-actions">
+                <button id="btn-drive-reset" class="drive-btn drive-danger">
+                    Reset Car
+                </button>
+                <button id="btn-build" class="drive-btn drive-primary">
+                    Back to Building
+                </button>
+            </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div id="toolbar" class="ui-panel tool-dock">
+            <div class="variant-group">
+                <button class="tool-btn selected-tool" data-type="block">
+                    <div class="w-8 h-8 bg-blue-500 rounded-sm mb-1 shadow-inner"></div>
+                    <span class="tool-name">Chassis Block</span>
+                    <span class="tool-meta" data-size-label-for="block">Size: 1x</span>
+                    <span class="tool-price">-50 EUR</span>
+                </button>
+                <div class="variant-menu">
+                    <button class="variant-option active" data-tool="block" data-variant="standard">1x Block</button>
+                    <button class="variant-option" data-tool="block" data-variant="micro">0.25x Block</button>
+                </div>
+            </div>
+            <div class="variant-group">
+                <button class="tool-btn" data-type="wheel">
+                    <div class="w-8 h-8 bg-gray-900 rounded-full border-2 border-gray-500 mb-1"></div>
+                    <span class="tool-name">Drive Wheel</span>
+                    <span class="tool-meta" data-size-label-for="wheel">Size: 1x</span>
+                    <span class="tool-price">-200 EUR</span>
+                </button>
+                <div class="variant-menu">
+                    <button class="variant-option active" data-tool="wheel" data-variant="standard">1x Wheel</button>
+                    <button class="variant-option" data-tool="wheel" data-variant="large">2x Wheel</button>
+                </div>
+            </div>
+            <button class="tool-btn" data-type="thruster">
+                <div class="relative w-12 h-8 mb-1 flex items-center justify-center">
+                    <div
+                        class="absolute left-1 w-7 h-4 rounded-full bg-orange-500 border-2 border-orange-300 shadow-inner">
+                    </div>
+                    <div class="absolute left-6 w-3 h-5 rounded-sm bg-gray-900 border border-orange-200"></div>
+                    <div
+                        class="absolute right-0 w-0 h-0 border-y-[5px] border-y-transparent border-l-[12px] border-l-cyan-300">
+                    </div>
+                </div>
+                <span class="tool-name">Thruster</span>
+                <span class="tool-price">-500 EUR</span>
+            </button>
+            <button class="tool-btn" data-type="rotor">
+                <div class="relative w-10 h-8 mb-1 flex items-center justify-center">
+                    <div class="absolute w-8 h-8 rounded-full bg-cyan-500 border-2 border-cyan-200 shadow-inner"></div>
+                    <div class="absolute w-3 h-3 rounded-full bg-gray-900 border border-cyan-100"></div>
+                    <div class="absolute w-1 h-7 bg-gray-900/70 rounded"></div>
+                </div>
+                <span class="tool-name">Rotor</span>
+                <span class="tool-price">-300 EUR</span>
+            </button>
+            <button class="tool-btn" data-type="slider">
+                <div class="relative w-12 h-8 mb-1 flex items-center justify-center">
+                    <div class="absolute w-11 h-3 rounded-sm bg-emerald-500 border border-emerald-100 shadow-inner"></div>
+                    <div class="absolute left-1 w-2 h-6 rounded bg-slate-900/80"></div>
+                    <div class="absolute right-1 w-2 h-6 rounded bg-slate-900/80"></div>
+                    <div
+                        class="absolute right-0 w-0 h-0 border-y-[5px] border-y-transparent border-l-[10px] border-l-lime-200">
+                    </div>
+                </div>
+                <span class="tool-name">Slider</span>
+                <span class="tool-price">-250 EUR</span>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- GAME STATE & ECONOMY ---
+        const STARTING_BUDGET = 50000;
+        const VEHICLE_SAVE_KEY = 'three-vehicles-builder.vehicle.v1';
+        let budget = STARTING_BUDGET;
+        const COSTS = { core: 0, block: 50, wheel: 200, thruster: 500, rotor: 300, slider: 250 };
+        const PART_VARIANTS = {
+            core: {
+                standard: { label: '1x', size: 1 }
+            },
+            block: {
+                standard: { label: '1x', size: 1 },
+                micro: { label: '0.25x', size: 0.25 }
+            },
+            wheel: {
+                standard: { label: '1x', radius: 0.75, width: 0.4, physicsRadius: 0.75 },
+                large: { label: '2x', radius: 1.5, width: 0.8, physicsRadius: 1.5 }
+            },
+            thruster: {
+                standard: { label: '1x', radius: 0.34, height: 1.15 }
+            },
+            rotor: {
+                standard: { label: '1x', radius: 0.46, height: 0.52 }
+            },
+            slider: {
+                standard: { label: '1x', width: 1.12, depth: 1.12, height: 0.24 }
+            }
+        };
+        let mode = 'build'; // 'build' or 'drive'
+        let currentTool = 'block';
+        const currentVariants = { block: 'standard', wheel: 'standard', thruster: 'standard', rotor: 'standard', slider: 'standard' };
+        let powerLevel = 100;
+        let rotorAngle = 90;
+        let rotorDelay = 0;
+        let rotorSpeed = 90;
+        let sliderDelay = 0;
+        let sliderSpeed = 2;
+        let parts = []; // Stores { id, type, mesh, pos, normal, rot, parentId }
+        let nextPartId = 1;
+        let rotorTimers = [];
+        let rotorAnimations = [];
+        let selectedRotorId = 'new';
+        let sliderTimers = [];
+        let sliderAnimations = [];
+        let selectedSliderId = 'new';
+        let coreBlock = null;
+        const BUILD_SPAWN_HEIGHT = 3;
+        const DRIVE_GROUND_CLEARANCE = 0.35;
+        const PHYSICS_FIXED_STEP = 1 / 60;
+        const PHYSICS_MAX_DELTA = 1 / 20;
+        const PHYSICS_MAX_SUBSTEPS = 8;
+        const STEERING_MAX_ANGLE = 0.42;
+        const STEERING_RESPONSE = 10;
+        const MOTOR_RESPONSE = 7;
+
+        const budgetDisplay = document.getElementById('budget-display');
+        const powerSlider = document.getElementById('power-slider');
+        const powerDisplay = document.getElementById('power-display');
+        const rotorTargetSelect = document.getElementById('rotor-target-select');
+        const rotorAngleSlider = document.getElementById('rotor-angle-slider');
+        const rotorAngleDisplay = document.getElementById('rotor-angle-display');
+        const rotorDelaySlider = document.getElementById('rotor-delay-slider');
+        const rotorDelayDisplay = document.getElementById('rotor-delay-display');
+        const rotorSpeedSlider = document.getElementById('rotor-speed-slider');
+        const rotorSpeedDisplay = document.getElementById('rotor-speed-display');
+        const sliderTargetSelect = document.getElementById('slider-target-select');
+        const sliderDelaySlider = document.getElementById('slider-delay-slider');
+        const sliderDelayDisplay = document.getElementById('slider-delay-display');
+        const sliderSpeedSlider = document.getElementById('slider-speed-slider');
+        const sliderSpeedDisplay = document.getElementById('slider-speed-display');
+        const vehicleFileInput = document.getElementById('vehicle-file-input');
+        const modePill = document.querySelector('.mode-pill');
+        function updateEconomy() {
+            budgetDisplay.innerText = `${budget} EUR`;
+            budgetDisplay.classList.toggle('budget-negative', budget < 0);
+        }
+
+        function updateModePill() {
+            if (modePill) modePill.textContent = mode === 'drive' ? 'Drive' : 'Build';
+        }
+
+        function updatePowerDisplay() {
+            powerDisplay.innerText = `${powerLevel}%`;
+        }
+
+        function formatSeconds(value) {
+            return Number(value).toFixed(2).replace(/\.?0+$/, '');
+        }
+
+        function getSelectedRotor() {
+            if (selectedRotorId === 'new') return null;
+            return parts.find(part => part.type === 'rotor' && String(part.id) === selectedRotorId) || null;
+        }
+
+        function getActiveRotorSettings() {
+            const selectedRotor = getSelectedRotor();
+            if (selectedRotor) return getRotorSettings(selectedRotor);
+            return { angle: rotorAngle, delay: rotorDelay, speed: rotorSpeed };
+        }
+
+        function setActiveRotorSetting(key, value) {
+            const selectedRotor = getSelectedRotor();
+            if (selectedRotor) {
+                selectedRotor.settings = { ...getRotorSettings(selectedRotor), [key]: value };
+            } else if (key === 'angle') {
+                rotorAngle = value;
+            } else if (key === 'delay') {
+                rotorDelay = value;
+            } else if (key === 'speed') {
+                rotorSpeed = value;
+            }
+            updateRotorSettingsDisplay();
+        }
+
+        function getRotorOptionLabel(rotor, index) {
+            const x = formatSeconds(rotor.pos.x);
+            const y = formatSeconds(rotor.pos.y);
+            const z = formatSeconds(rotor.pos.z);
+            return `Rotor ${index + 1} (${x}, ${y}, ${z})`;
+        }
+
+        function updateRotorTargetOptions() {
+            const rotors = parts.filter(part => part.type === 'rotor');
+            const hasSelection = selectedRotorId === 'new' || rotors.some(rotor => String(rotor.id) === selectedRotorId);
+            if (!hasSelection) selectedRotorId = 'new';
+
+            rotorTargetSelect.innerHTML = '';
+            const defaultOption = document.createElement('option');
+            defaultOption.value = 'new';
+            defaultOption.textContent = 'New Rotors';
+            rotorTargetSelect.appendChild(defaultOption);
+
+            rotors.forEach((rotor, index) => {
+                const option = document.createElement('option');
+                option.value = String(rotor.id);
+                option.textContent = getRotorOptionLabel(rotor, index);
+                rotorTargetSelect.appendChild(option);
+            });
+
+            rotorTargetSelect.value = selectedRotorId;
+        }
+
+        function updateRotorSettingsDisplay() {
+            const settings = getActiveRotorSettings();
+            rotorAngleDisplay.innerText = `${settings.angle} deg`;
+            rotorDelayDisplay.innerText = `${formatSeconds(settings.delay)}s`;
+            rotorSpeedDisplay.innerText = `${settings.speed} deg/s`;
+            rotorAngleSlider.value = settings.angle;
+            rotorDelaySlider.value = settings.delay;
+            rotorSpeedSlider.value = settings.speed;
+        }
+
+        function getSelectedSlider() {
+            if (selectedSliderId === 'new') return null;
+            return parts.find(part => part.type === 'slider' && String(part.id) === selectedSliderId) || null;
+        }
+
+        function getActiveSliderSettings() {
+            const selectedSlider = getSelectedSlider();
+            if (selectedSlider) return getSliderSettings(selectedSlider);
+            return { delay: sliderDelay, speed: sliderSpeed };
+        }
+
+        function setActiveSliderSetting(key, value) {
+            const selectedSlider = getSelectedSlider();
+            if (selectedSlider) {
+                selectedSlider.settings = { ...getSliderSettings(selectedSlider), [key]: value };
+            } else if (key === 'delay') {
+                sliderDelay = value;
+            } else if (key === 'speed') {
+                sliderSpeed = value;
+            }
+            updateSliderSettingsDisplay();
+        }
+
+        function getSliderOptionLabel(slider, index) {
+            const x = formatSeconds(slider.pos.x);
+            const y = formatSeconds(slider.pos.y);
+            const z = formatSeconds(slider.pos.z);
+            return `Slider ${index + 1} (${x}, ${y}, ${z})`;
+        }
+
+        function updateSliderTargetOptions() {
+            const sliders = parts.filter(part => part.type === 'slider');
+            const hasSelection = selectedSliderId === 'new' || sliders.some(slider => String(slider.id) === selectedSliderId);
+            if (!hasSelection) selectedSliderId = 'new';
+
+            sliderTargetSelect.innerHTML = '';
+            const defaultOption = document.createElement('option');
+            defaultOption.value = 'new';
+            defaultOption.textContent = 'New Sliders';
+            sliderTargetSelect.appendChild(defaultOption);
+
+            sliders.forEach((slider, index) => {
+                const option = document.createElement('option');
+                option.value = String(slider.id);
+                option.textContent = getSliderOptionLabel(slider, index);
+                sliderTargetSelect.appendChild(option);
+            });
+
+            sliderTargetSelect.value = selectedSliderId;
+        }
+
+        function updateSliderSettingsDisplay() {
+            const settings = getActiveSliderSettings();
+            sliderDelayDisplay.innerText = `${formatSeconds(settings.delay)}s`;
+            sliderSpeedDisplay.innerText = `${formatSeconds(settings.speed)} blocks/s`;
+            sliderDelaySlider.value = settings.delay;
+            sliderSpeedSlider.value = settings.speed;
+        }
+
+        function showNotification(message, type = 'info') {
+            const el = document.createElement('div');
+            el.className = `fixed top-20 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-lg shadow-xl border font-bold z-50 transition-opacity duration-300 pointer-events-none ${type === 'error' ? 'bg-red-600 border-red-400 text-white' : 'bg-green-600 border-green-400 text-white'}`;
+            el.innerText = message;
+            document.body.appendChild(el);
+            setTimeout(() => {
+                el.style.opacity = '0';
+                setTimeout(() => el.remove(), 300);
+            }, 3000);
+        }
+
+        // --- THREE.JS SETUP ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87ceeb); // Cielo
+        scene.fog = new THREE.Fog(0x87ceeb, 20, 100);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(5, 5, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+
+        // Lights
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(10, 20, 10);
+        dirLight.castShadow = true;
+        dirLight.shadow.camera.top = 20;
+        dirLight.shadow.camera.bottom = -20;
+        dirLight.shadow.camera.left = -20;
+        dirLight.shadow.camera.right = 20;
+        scene.add(dirLight);
+
+        // Ground (Visual)
+        const groundGeo = new THREE.PlaneGeometry(200, 200);
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0x4a5568, roughness: 0.8 });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        const gridHelper = new THREE.GridHelper(100, 100, 0x000000, 0x000000);
+        gridHelper.material.opacity = 0.2;
+        gridHelper.material.transparent = true;
+        scene.add(gridHelper);
+
+        // Materials & Geometries for Builder
+        const materials = {
+            core: new THREE.MeshStandardMaterial({ color: 0xe53e3e, roughness: 0.4 }),
+            block: new THREE.MeshStandardMaterial({ color: 0x3182ce, roughness: 0.4 }),
+            wheel: new THREE.MeshStandardMaterial({ color: 0x1a202c, roughness: 0.9 }),
+            thruster: new THREE.MeshStandardMaterial({ color: 0xdd6b20, roughness: 0.3 }),
+            rotor: new THREE.MeshStandardMaterial({ color: 0x0891b2, roughness: 0.28, metalness: 0.35 }),
+            slider: new THREE.MeshStandardMaterial({ color: 0x10b981, roughness: 0.32, metalness: 0.28 })
+        };
+        const thrusterBandMaterial = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.25, metalness: 0.55 });
+        const thrusterNozzleMaterial = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.35, metalness: 0.7 });
+        const rotorAccentMaterial = new THREE.MeshStandardMaterial({ color: 0xe0f2fe, roughness: 0.18, metalness: 0.7 });
+        const rotorHubMaterial = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.35, metalness: 0.45 });
+        const sliderRailMaterial = new THREE.MeshStandardMaterial({ color: 0x064e3b, roughness: 0.3, metalness: 0.48 });
+        const sliderArrowMaterial = new THREE.MeshStandardMaterial({ color: 0xd9f99d, roughness: 0.16, metalness: 0.2 });
+
+        function getPartVariant(type, variantKey = 'standard') {
+            const variants = PART_VARIANTS[type] || {};
+            return variants[variantKey] || variants.standard;
+        }
+
+        function createGeometryForPart(type, variantKey = 'standard') {
+            const variant = getPartVariant(type, variantKey);
+            if (type === 'core' || type === 'block') return new THREE.BoxGeometry(variant.size, variant.size, variant.size);
+            if (type === 'wheel') return new THREE.CylinderGeometry(variant.radius, variant.radius, variant.width, 24);
+            if (type === 'thruster') return new THREE.CylinderGeometry(variant.radius, variant.radius, variant.height, 32);
+            if (type === 'rotor') return new THREE.CylinderGeometry(variant.radius, variant.radius, variant.height, 32);
+            if (type === 'slider') return new THREE.BoxGeometry(variant.width, variant.height, variant.depth);
+            return new THREE.BoxGeometry(1, 1, 1);
+        }
+
+        function createThrusterDirectionIndicator(variant, opacity = 0.9) {
+            const group = new THREE.Group();
+            const arrowMaterial = new THREE.MeshBasicMaterial({
+                color: 0x38bdf8,
+                transparent: true,
+                opacity,
+                depthWrite: false
+            });
+            const shaftLength = variant.height * 0.45;
+            const headLength = variant.height * 0.24;
+            const start = variant.height / 2 + 0.16;
+
+            const shaft = new THREE.Mesh(
+                new THREE.CylinderGeometry(variant.radius * 0.09, variant.radius * 0.09, shaftLength, 12),
+                arrowMaterial
+            );
+            shaft.position.y = start + shaftLength / 2;
+
+            const head = new THREE.Mesh(
+                new THREE.ConeGeometry(variant.radius * 0.32, headLength, 18),
+                arrowMaterial
+            );
+            head.position.y = start + shaftLength + headLength / 2;
+
+            group.add(shaft, head);
+            group.userData.isDirectionIndicator = true;
+            return group;
+        }
+
+        function addThrusterBarrelDetails(mesh, variantKey) {
+            const variant = getPartVariant('thruster', variantKey);
+            const rearBand = new THREE.Mesh(
+                new THREE.CylinderGeometry(variant.radius * 1.08, variant.radius * 1.08, variant.height * 0.16, 32),
+                thrusterBandMaterial
+            );
+            rearBand.position.y = -variant.height / 2 + variant.height * 0.12;
+
+            const frontCollar = new THREE.Mesh(
+                new THREE.CylinderGeometry(variant.radius * 1.16, variant.radius * 1.16, variant.height * 0.18, 32),
+                thrusterBandMaterial
+            );
+            frontCollar.position.y = variant.height / 2 - variant.height * 0.08;
+
+            const nozzleFace = new THREE.Mesh(
+                new THREE.CylinderGeometry(variant.radius * 0.72, variant.radius * 0.72, 0.045, 32),
+                thrusterNozzleMaterial
+            );
+            nozzleFace.position.y = variant.height / 2 + 0.026;
+
+            mesh.add(rearBand, frontCollar, nozzleFace, createThrusterDirectionIndicator(variant));
+        }
+
+        function addRotorDetails(mesh, variantKey) {
+            const variant = getPartVariant('rotor', variantKey);
+            const capDepth = 0.045;
+            const rearCap = new THREE.Mesh(
+                new THREE.CylinderGeometry(variant.radius * 1.04, variant.radius * 1.04, capDepth, 32),
+                rotorAccentMaterial
+            );
+            rearCap.position.y = -variant.height / 2 - capDepth / 2;
+
+            const frontCap = rearCap.clone();
+            frontCap.position.y = variant.height / 2 + capDepth / 2;
+
+            const hub = new THREE.Mesh(
+                new THREE.CylinderGeometry(variant.radius * 0.32, variant.radius * 0.32, variant.height + capDepth * 3, 24),
+                rotorHubMaterial
+            );
+
+            const pointer = new THREE.Mesh(
+                new THREE.BoxGeometry(variant.radius * 0.16, capDepth * 1.4, variant.radius * 1.55),
+                rotorAccentMaterial
+            );
+            pointer.position.y = variant.height / 2 + capDepth * 1.2;
+
+            mesh.add(rearCap, frontCap, hub, pointer);
+        }
+
+        function addSliderDetails(mesh, variantKey) {
+            const variant = getPartVariant('slider', variantKey);
+            const railWidth = variant.width * 0.12;
+            const railHeight = variant.height * 0.42;
+            const railDepth = variant.depth * 0.92;
+            const railY = variant.height / 2 + railHeight / 2;
+            const railX = variant.width * 0.34;
+
+            const leftRail = new THREE.Mesh(
+                new THREE.BoxGeometry(railWidth, railHeight, railDepth),
+                sliderRailMaterial
+            );
+            leftRail.position.set(-railX, railY, 0);
+
+            const rightRail = leftRail.clone();
+            rightRail.position.x = railX;
+
+            const arrowShaft = new THREE.Mesh(
+                new THREE.BoxGeometry(variant.width * 0.08, variant.height * 0.18, variant.depth * 0.46),
+                sliderArrowMaterial
+            );
+            arrowShaft.position.set(0, railY + railHeight * 0.35, -variant.depth * 0.06);
+
+            const arrowHead = new THREE.Mesh(
+                new THREE.ConeGeometry(variant.width * 0.16, variant.depth * 0.24, 3),
+                sliderArrowMaterial
+            );
+            arrowHead.rotation.x = Math.PI / 2;
+            arrowHead.rotation.z = Math.PI / 6;
+            arrowHead.position.set(0, railY + railHeight * 0.35, variant.depth * 0.27);
+
+            mesh.add(leftRail, rightRail, arrowShaft, arrowHead);
+        }
+
+        function createPartMesh(type, variantKey = 'standard', normal = null) {
+            const material = materials[type] || materials.block;
+            const mesh = new THREE.Mesh(createGeometryForPart(type, variantKey), material);
+            if (type === 'thruster') {
+                addThrusterBarrelDetails(mesh, variantKey);
+            }
+            if (type === 'rotor') {
+                addRotorDetails(mesh, variantKey);
+            }
+            if (type === 'slider') {
+                addSliderDetails(mesh, variantKey);
+            }
+            if (normal && type !== 'block' && type !== 'core') {
+                mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+            }
+            return mesh;
+        }
+
+        // Ghost Block
+        const ghostMesh = new THREE.Mesh(createGeometryForPart('block'), new THREE.MeshBasicMaterial({ color: 0x63b3ed, transparent: true, opacity: 0.5 }));
+        scene.add(ghostMesh);
+        const ghostThrusterIndicator = createThrusterDirectionIndicator(getPartVariant('thruster'), 0.45);
+        ghostThrusterIndicator.visible = false;
+        scene.add(ghostThrusterIndicator);
+
+        // --- JOLT PHYSICS SETUP ---
+        let world = null;
+        let jolt = null;
+        let physicsSystem = null;
+        let bodyInterface = null;
+        let chassisBody = null;
+        let chassisBodyId = null;
+        let joltBodyIds = [];
+        let physicsVisuals = [];
+        let wheelConstraints = [];
+        let joltVehicleConstraint = null;
+        let joltVehicleController = null;
+        let joltVehicleStepListener = null;
+        let joltVehiclePreviousForward = 1;
+        let thrusterJets = [];
+        let driveVisualParts = new Map();
+        let driveSpawnHeight = 2;
+        let smoothedSteeringAngle = 0;
+        let joltRebuildPending = false;
+
+        const JOLT_LAYER_NON_MOVING = 0;
+        const JOLT_LAYER_MOVING = 1;
+        const JOLT_NUM_OBJECT_LAYERS = 2;
+
+        function setupJoltCollisionFiltering(settings) {
+            const objectFilter = new Jolt.ObjectLayerPairFilterTable(JOLT_NUM_OBJECT_LAYERS);
+            objectFilter.EnableCollision(JOLT_LAYER_NON_MOVING, JOLT_LAYER_MOVING);
+            objectFilter.EnableCollision(JOLT_LAYER_MOVING, JOLT_LAYER_MOVING);
+
+            const bpLayerNonMoving = new Jolt.BroadPhaseLayer(0);
+            const bpLayerMoving = new Jolt.BroadPhaseLayer(1);
+            const numBroadPhaseLayers = 2;
+            const bpInterface = new Jolt.BroadPhaseLayerInterfaceTable(JOLT_NUM_OBJECT_LAYERS, numBroadPhaseLayers);
+            bpInterface.MapObjectToBroadPhaseLayer(JOLT_LAYER_NON_MOVING, bpLayerNonMoving);
+            bpInterface.MapObjectToBroadPhaseLayer(JOLT_LAYER_MOVING, bpLayerMoving);
+
+            settings.mObjectLayerPairFilter = objectFilter;
+            settings.mBroadPhaseLayerInterface = bpInterface;
+            settings.mObjectVsBroadPhaseLayerFilter = new Jolt.ObjectVsBroadPhaseLayerFilterTable(
+                bpInterface,
+                numBroadPhaseLayers,
+                objectFilter,
+                JOLT_NUM_OBJECT_LAYERS
+            );
+        }
+
+        async function ensureJoltReady() {
+            if (!window.joltReadyPromise) throw new Error("Jolt did not start loading.");
+            return await window.joltReadyPromise;
+        }
+
+        function destroyJoltObject(object) {
+            if (!object || !window.Jolt || !Jolt.destroy) return;
+            try {
+                Jolt.destroy(object);
+            } catch (error) {
+                console.warn("Could not destroy Jolt object.", error);
+            }
+        }
+
+        async function initPhysics() {
+            Jolt = await ensureJoltReady();
+            const settings = new Jolt.JoltSettings();
+            try {
+                settings.mMaxWorkerThreads = 0;
+                setupJoltCollisionFiltering(settings);
+                jolt = new Jolt.JoltInterface(settings);
+            } finally {
+                destroyJoltObject(settings);
+            }
+
+            physicsSystem = jolt.GetPhysicsSystem();
+            bodyInterface = physicsSystem.GetBodyInterface();
+            world = { engine: 'jolt' };
+
+            const groundShape = new Jolt.BoxShape(new Jolt.Vec3(100, 0.5, 100), 0.05, null);
+            const groundSettings = new Jolt.BodyCreationSettings(
+                groundShape,
+                new Jolt.RVec3(0, -0.5, 0),
+                Jolt.Quat.prototype.sIdentity(),
+                Jolt.EMotionType_Static,
+                JOLT_LAYER_NON_MOVING
+            );
+            const groundBody = bodyInterface.CreateBody(groundSettings);
+            groundBody.SetFriction(1.25);
+            bodyInterface.AddBody(groundBody.GetID(), Jolt.EActivation_DontActivate);
+            joltBodyIds.push(groundBody.GetID());
+            Jolt.destroy(groundSettings);
+        }
+
+        // --- BUILDER LOGIC ---
+        const buildGroup = new THREE.Group();
+        scene.add(buildGroup);
+
+        function clearRotorTimers() {
+            rotorTimers.forEach(timer => clearTimeout(timer));
+            rotorTimers = [];
+            rotorAnimations = [];
+            parts.forEach(part => {
+                if (part.type === 'rotor') {
+                    part.isPending = false;
+                    part.isAnimating = false;
+                }
+            });
+        }
+
+        function clearSliderTimers() {
+            sliderTimers.forEach(timer => clearTimeout(timer));
+            sliderTimers = [];
+            sliderAnimations = [];
+            parts.forEach(part => {
+                if (part.type === 'slider') {
+                    part.isPending = false;
+                    part.isAnimating = false;
+                }
+            });
+        }
+
+        function focusBuildCamera() {
+            camera.position.set(5, BUILD_SPAWN_HEIGHT + 4, 5);
+            controls.target.set(0, BUILD_SPAWN_HEIGHT, 0);
+        }
+
+        function initCore() {
+            clearRotorTimers();
+            clearSliderTimers();
+            parts.forEach(p => { if (p.mesh) buildGroup.remove(p.mesh); });
+            parts = [];
+            nextPartId = 1;
+            selectedRotorId = 'new';
+            selectedSliderId = 'new';
+            buildGroup.position.set(0, BUILD_SPAWN_HEIGHT, 0);
+            buildGroup.rotation.set(0, 0, 0);
+
+            coreBlock = createPartMesh('core', 'standard');
+            coreBlock.castShadow = true;
+            coreBlock.receiveShadow = true;
+            coreBlock.position.set(0, 0, 0);
+            coreBlock.userData = { isPart: true, isCore: true, type: 'core', variant: 'standard', partId: 0 };
+            buildGroup.add(coreBlock);
+
+            parts.push({ id: 0, type: 'core', variant: 'standard', mesh: coreBlock, pos: new THREE.Vector3(0, 0, 0), normal: new THREE.Vector3(0, 1, 0), rot: coreBlock.quaternion.clone(), parentId: null });
+            budget = STARTING_BUDGET;
+            updateEconomy();
+            updateRotorTargetOptions();
+            updateRotorSettingsDisplay();
+            updateSliderTargetOptions();
+            updateSliderSettingsDisplay();
+            focusBuildCamera();
+        }
+        initCore();
+
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        function snapToBuilderGrid(value) {
+            return Math.round(value * 1000) / 1000;
+        }
+
+        function getCurrentVariantKey(type) {
+            return currentVariants[type] || 'standard';
+        }
+
+        function getPartAxisHalfExtents(type, variantKey, normal = new THREE.Vector3(0, 1, 0)) {
+            const variant = getPartVariant(type, variantKey);
+            if (type === 'core' || type === 'block') {
+                const half = variant.size / 2;
+                return new THREE.Vector3(half, half, half);
+            }
+
+            if (type === 'wheel') {
+                const axis = normal.clone().set(Math.sign(normal.x), Math.sign(normal.y), Math.sign(normal.z));
+                const widthHalf = variant.width / 2;
+                const radius = variant.radius;
+                return new THREE.Vector3(
+                    Math.abs(axis.x) > 0 ? widthHalf : radius,
+                    Math.abs(axis.y) > 0 ? widthHalf : radius,
+                    Math.abs(axis.z) > 0 ? widthHalf : radius
+                );
+            }
+
+            if (type === 'thruster') {
+                const radius = variant.radius;
+                const heightHalf = variant.height / 2;
+                return new THREE.Vector3(
+                    Math.abs(normal.x) > 0 ? heightHalf : radius,
+                    Math.abs(normal.y) > 0 ? heightHalf : radius,
+                    Math.abs(normal.z) > 0 ? heightHalf : radius
+                );
+            }
+
+            if (type === 'rotor') {
+                const radius = variant.radius;
+                const heightHalf = variant.height / 2;
+                return new THREE.Vector3(
+                    Math.abs(normal.x) > 0 ? heightHalf : radius,
+                    Math.abs(normal.y) > 0 ? heightHalf : radius,
+                    Math.abs(normal.z) > 0 ? heightHalf : radius
+                );
+            }
+
+            if (type === 'slider') {
+                const widthHalf = variant.width / 2;
+                const depthHalf = variant.depth / 2;
+                const heightHalf = variant.height / 2;
+                return new THREE.Vector3(
+                    Math.abs(normal.x) > 0 ? heightHalf : widthHalf,
+                    Math.abs(normal.y) > 0 ? heightHalf : widthHalf,
+                    Math.abs(normal.z) > 0 ? heightHalf : depthHalf
+                );
+            }
+
+            return new THREE.Vector3(0.5, 0.5, 0.5);
+        }
+
+        function getPartDataFromMesh(mesh) {
+            if (mesh.userData && mesh.userData.partId !== undefined) {
+                return parts.find(p => p.id === mesh.userData.partId) || null;
+            }
+            return parts.find(p => p.mesh === mesh) || null;
+        }
+
+        function getPlacementFromIntersect(intersect, newType, newVariantKey) {
+            const targetPart = getPartDataFromMesh(intersect.object);
+            if (!targetPart) return getGridPos(intersect);
+
+            let normal = intersect.face.normal.clone();
+            if (intersect.object.quaternion) {
+                normal.applyQuaternion(intersect.object.quaternion).normalize();
+            }
+
+            const absX = Math.abs(normal.x), absY = Math.abs(normal.y), absZ = Math.abs(normal.z);
+            if (absX > absY && absX > absZ) normal.set(Math.sign(normal.x), 0, 0);
+            else if (absY > absX && absY > absZ) normal.set(0, Math.sign(normal.y), 0);
+            else normal.set(0, 0, Math.sign(normal.z));
+
+            const targetExtents = getPartAxisHalfExtents(targetPart.type, targetPart.variant || 'standard', targetPart.normal || normal);
+            const newExtents = getPartAxisHalfExtents(newType, newVariantKey, normal);
+
+            const offset =
+                Math.abs(normal.x) > 0 ? targetExtents.x + newExtents.x :
+                    Math.abs(normal.y) > 0 ? targetExtents.y + newExtents.y :
+                        targetExtents.z + newExtents.z;
+
+            const pos = targetPart.pos.clone().add(normal.clone().multiplyScalar(offset));
+            pos.set(snapToBuilderGrid(pos.x), snapToBuilderGrid(pos.y), snapToBuilderGrid(pos.z));
+            return { pos, normal };
+        }
+
+        function partsOverlap(posA, extA, posB, extB) {
+            return Math.abs(posA.x - posB.x) < extA.x + extB.x - 0.01
+                && Math.abs(posA.y - posB.y) < extA.y + extB.y - 0.01
+                && Math.abs(posA.z - posB.z) < extA.z + extB.z - 0.01;
+        }
+
+        function updateVariantLabels() {
+            document.querySelectorAll('[data-size-label-for]').forEach(el => {
+                const type = el.dataset.sizeLabelFor;
+                el.textContent = `Size: ${getPartVariant(type, getCurrentVariantKey(type)).label}`;
+            });
+
+            document.querySelectorAll('.variant-option').forEach(option => {
+                const isActive = getCurrentVariantKey(option.dataset.tool) === option.dataset.variant;
+                option.classList.toggle('active', isActive);
+            });
+        }
+
+        function roundVehicleNumber(value) {
+            if (!Number.isFinite(value)) return 0;
+            const rounded = Math.round(value * 100000) / 100000;
+            return Object.is(rounded, -0) ? 0 : rounded;
+        }
+
+        function vectorToPlain(vector) {
+            return {
+                x: roundVehicleNumber(vector.x),
+                y: roundVehicleNumber(vector.y),
+                z: roundVehicleNumber(vector.z)
+            };
+        }
+
+        function quaternionToPlain(quaternion) {
+            return {
+                x: roundVehicleNumber(quaternion.x),
+                y: roundVehicleNumber(quaternion.y),
+                z: roundVehicleNumber(quaternion.z),
+                w: roundVehicleNumber(quaternion.w)
+            };
+        }
+
+        function calculateBudgetForParts(partList) {
+            return STARTING_BUDGET - partList.reduce((total, part) => {
+                if (!part || part.type === 'core') return total;
+                return total + (COSTS[part.type] || 0);
+            }, 0);
+        }
+
+        function createVehicleDocument() {
+            return {
+                format: 'three-vehicles-builder-llm-json',
+                version: 1,
+                exportedAt: new Date().toISOString(),
+                budgetLimit: STARTING_BUDGET,
+                budgetRemaining: budget,
+                settings: {
+                    wheelPowerPercent: powerLevel,
+                    defaultRotorSettings: {
+                        angle: rotorAngle,
+                        delay: rotorDelay,
+                        speed: rotorSpeed
+                    },
+                    defaultSliderSettings: {
+                        delay: sliderDelay,
+                        speed: sliderSpeed
+                    }
+                },
+                parts: parts.map(part => {
+                    const savedPart = {
+                        id: part.id,
+                        type: part.type,
+                        variant: part.variant || 'standard',
+                        position: vectorToPlain(part.pos),
+                        normal: vectorToPlain(part.normal || new THREE.Vector3(0, 1, 0)),
+                        rotationQuaternion: quaternionToPlain(part.rot || part.mesh.quaternion),
+                        parentId: part.parentId
+                    };
+
+                    if (part.type === 'rotor') {
+                        savedPart.rotorSettings = { ...getRotorSettings(part) };
+                    }
+                    if (part.type === 'slider') {
+                        savedPart.sliderSettings = { ...getSliderSettings(part) };
+                    }
+
+                    return savedPart;
+                })
+            };
+        }
+
+        function finiteNumber(value, fallback) {
+            const number = Number(value);
+            return Number.isFinite(number) ? number : fallback;
+        }
+
+        function clampNumber(value, min, max, fallback) {
+            return Math.min(max, Math.max(min, finiteNumber(value, fallback)));
+        }
+
+        function readVector(value, fallback) {
+            if (Array.isArray(value)) {
+                return new THREE.Vector3(
+                    finiteNumber(value[0], fallback.x),
+                    finiteNumber(value[1], fallback.y),
+                    finiteNumber(value[2], fallback.z)
+                );
+            }
+
+            if (value && typeof value === 'object') {
+                return new THREE.Vector3(
+                    finiteNumber(value.x, fallback.x),
+                    finiteNumber(value.y, fallback.y),
+                    finiteNumber(value.z, fallback.z)
+                );
+            }
+
+            return fallback.clone();
+        }
+
+        function readQuaternion(value, fallback) {
+            let quaternion = null;
+            if (Array.isArray(value)) {
+                quaternion = new THREE.Quaternion(
+                    finiteNumber(value[0], fallback.x),
+                    finiteNumber(value[1], fallback.y),
+                    finiteNumber(value[2], fallback.z),
+                    finiteNumber(value[3], fallback.w)
+                );
+            } else if (value && typeof value === 'object') {
+                quaternion = new THREE.Quaternion(
+                    finiteNumber(value.x, fallback.x),
+                    finiteNumber(value.y, fallback.y),
+                    finiteNumber(value.z, fallback.z),
+                    finiteNumber(value.w, fallback.w)
+                );
+            }
+
+            const lengthSquared = quaternion ? quaternion.x * quaternion.x + quaternion.y * quaternion.y + quaternion.z * quaternion.z + quaternion.w * quaternion.w : 0;
+            if (!quaternion || lengthSquared === 0) return fallback.clone();
+            return quaternion.normalize();
+        }
+
+        function normalizeImportedNormal(normal) {
+            if (normal.lengthSq && normal.lengthSq() > 0) return normal.normalize();
+            const lengthSquared = normal.x * normal.x + normal.y * normal.y + normal.z * normal.z;
+            if (lengthSquared > 0) return normal.normalize();
+            return new THREE.Vector3(0, 1, 0);
+        }
+
+        function normalizeVariantKey(type, variantKey) {
+            const variants = PART_VARIANTS[type] || {};
+            return variants[variantKey] ? variantKey : 'standard';
+        }
+
+        function normalizeRotorSettings(source = {}) {
+            return {
+                angle: clampNumber(source.angle, -180, 180, rotorAngle),
+                delay: clampNumber(source.delay, 0, 5, rotorDelay),
+                speed: clampNumber(source.speed, 15, 360, rotorSpeed)
+            };
+        }
+
+        function normalizeSliderSettings(source = {}) {
+            return {
+                delay: clampNumber(source.delay, 0, 5, sliderDelay),
+                speed: clampNumber(source.speed, 0.25, 6, sliderSpeed)
+            };
+        }
+
+        function normalizeImportedVehicleDocument(rawDocument) {
+            if (!rawDocument || typeof rawDocument !== 'object') {
+                throw new Error('Import needs a JSON object.');
+            }
+
+            const sourceParts = Array.isArray(rawDocument)
+                ? rawDocument.slice()
+                : (Array.isArray(rawDocument.parts) ? rawDocument.parts.slice() : []);
+            if (sourceParts.length === 0) throw new Error('No parts were found in this vehicle file.');
+            if (!sourceParts.some(part => String(part.type || part.kind || '').toLowerCase() === 'core')) {
+                sourceParts.unshift({
+                    id: 0,
+                    type: 'core',
+                    position: { x: 0, y: 0, z: 0 },
+                    normal: { x: 0, y: 1, z: 0 }
+                });
+            }
+
+            const oldToNewId = new Map();
+            const normalizedParts = [];
+            let hasCore = false;
+            let nextImportedPartId = 1;
+
+            sourceParts.forEach((part, index) => {
+                if (!part || typeof part !== 'object') return;
+                const type = String(part.type || part.kind || '').toLowerCase();
+                if (!PART_VARIANTS[type]) return;
+                if (type === 'core') {
+                    if (hasCore) return;
+                    hasCore = true;
+                }
+
+                const sourceId = part.id ?? part.partId ?? `index-${index}`;
+                const id = type === 'core' ? 0 : nextImportedPartId++;
+                oldToNewId.set(String(sourceId), id);
+
+                const normal = normalizeImportedNormal(readVector(part.normal, new THREE.Vector3(0, 1, 0)));
+                const fallbackRotation = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+                const rotation = readQuaternion(part.rotationQuaternion || part.rotation || part.rot, fallbackRotation);
+                const position = readVector(part.position || part.pos, new THREE.Vector3(0, 0, 0));
+
+                normalizedParts.push({
+                    id,
+                    type,
+                    variant: normalizeVariantKey(type, part.variant || 'standard'),
+                    pos: position,
+                    normal,
+                    rot: rotation,
+                    parentIdSource: part.parentId ?? part.parent ?? null,
+                    settings: type === 'rotor'
+                        ? normalizeRotorSettings(part.rotorSettings || part.settings || {})
+                        : (type === 'slider' ? normalizeSliderSettings(part.sliderSettings || part.settings || {}) : null)
+                });
+            });
+
+            if (!hasCore) throw new Error('The vehicle file does not contain a usable core part.');
+
+            normalizedParts.forEach(part => {
+                const parentId = part.parentIdSource;
+                part.parentId = parentId === null || parentId === undefined ? null : (oldToNewId.get(String(parentId)) ?? null);
+                delete part.parentIdSource;
+            });
+
+            normalizedParts.sort((a, b) => {
+                if (a.id === 0) return -1;
+                if (b.id === 0) return 1;
+                return a.id - b.id;
+            });
+
+            const settings = rawDocument.settings || rawDocument.vehicleSettings || {};
+            const rotorDefaults = settings.defaultRotorSettings || settings.rotorDefaults || rawDocument.defaultRotorSettings || {};
+            const sliderDefaults = settings.defaultSliderSettings || settings.sliderDefaults || rawDocument.defaultSliderSettings || {};
+
+            return {
+                parts: normalizedParts,
+                settings: {
+                    powerLevel: clampNumber(settings.wheelPowerPercent ?? settings.powerLevel ?? rawDocument.powerLevel, 20, 300, powerLevel),
+                    rotorAngle: clampNumber(rotorDefaults.angle ?? settings.rotorAngle ?? rawDocument.rotorAngle, -180, 180, rotorAngle),
+                    rotorDelay: clampNumber(rotorDefaults.delay ?? settings.rotorDelay ?? rawDocument.rotorDelay, 0, 5, rotorDelay),
+                    rotorSpeed: clampNumber(rotorDefaults.speed ?? settings.rotorSpeed ?? rawDocument.rotorSpeed, 15, 360, rotorSpeed),
+                    sliderDelay: clampNumber(sliderDefaults.delay ?? settings.sliderDelay ?? rawDocument.sliderDelay, 0, 5, sliderDelay),
+                    sliderSpeed: clampNumber(sliderDefaults.speed ?? settings.sliderSpeed ?? rawDocument.sliderSpeed, 0.25, 6, sliderSpeed)
+                }
+            };
+        }
+
+        function applyVehicleDocument(rawDocument) {
+            const vehicle = normalizeImportedVehicleDocument(rawDocument);
+
+            if (mode === 'drive') {
+                mode = 'build';
+                updateModePill();
+                resetInputState();
+                document.getElementById('toolbar').classList.remove('hidden');
+                document.getElementById('btn-drive').parentElement.classList.remove('hidden');
+                document.getElementById('drive-info').classList.add('hidden');
+                cleanupPhysicsVehicle();
+            }
+
+            clearRotorTimers();
+            clearSliderTimers();
+            parts.forEach(part => {
+                if (part.mesh) buildGroup.remove(part.mesh);
+            });
+
+            parts = [];
+            coreBlock = null;
+            selectedRotorId = 'new';
+            selectedSliderId = 'new';
+            buildGroup.visible = true;
+            buildGroup.position.set(0, BUILD_SPAWN_HEIGHT, 0);
+            buildGroup.rotation.set(0, 0, 0);
+
+            vehicle.parts.forEach(part => {
+                const mesh = createPartMesh(part.type, part.variant, part.normal);
+                mesh.position.copy(part.pos);
+                mesh.quaternion.copy(part.rot);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                mesh.userData = {
+                    isPart: true,
+                    isCore: part.type === 'core',
+                    type: part.type,
+                    variant: part.variant,
+                    partId: part.id
+                };
+                buildGroup.add(mesh);
+
+                const partData = {
+                    id: part.id,
+                    type: part.type,
+                    variant: part.variant,
+                    mesh,
+                    pos: part.pos.clone(),
+                    normal: part.normal.clone(),
+                    rot: part.rot.clone(),
+                    parentId: part.parentId
+                };
+
+                if (part.type === 'rotor') partData.settings = { ...part.settings };
+                if (part.type === 'slider') partData.settings = { ...part.settings };
+                if (part.type === 'core') coreBlock = mesh;
+                parts.push(partData);
+            });
+
+            nextPartId = Math.max(1, ...parts.map(part => part.id)) + 1;
+            powerLevel = vehicle.settings.powerLevel;
+            rotorAngle = vehicle.settings.rotorAngle;
+            rotorDelay = vehicle.settings.rotorDelay;
+            rotorSpeed = vehicle.settings.rotorSpeed;
+            sliderDelay = vehicle.settings.sliderDelay;
+            sliderSpeed = vehicle.settings.sliderSpeed;
+            powerSlider.value = powerLevel;
+            rotorAngleSlider.value = rotorAngle;
+            rotorDelaySlider.value = rotorDelay;
+            rotorSpeedSlider.value = rotorSpeed;
+            sliderDelaySlider.value = sliderDelay;
+            sliderSpeedSlider.value = sliderSpeed;
+            budget = calculateBudgetForParts(parts);
+
+            updateEconomy();
+            updatePowerDisplay();
+            updateRotorTargetOptions();
+            updateRotorSettingsDisplay();
+            updateSliderTargetOptions();
+            updateSliderSettingsDisplay();
+            updateVariantLabels();
+            focusBuildCamera();
+        }
+
+        function importVehicleText(text, successMessage = 'Vehicle imported.') {
+            try {
+                applyVehicleDocument(JSON.parse(text));
+                showNotification(successMessage);
+                return true;
+            } catch (error) {
+                console.error(error);
+                showNotification(error.message || 'Could not import this vehicle file.', 'error');
+                return false;
+            }
+        }
+
+        function saveVehicleLocally() {
+            try {
+                localStorage.setItem(VEHICLE_SAVE_KEY, JSON.stringify(createVehicleDocument(), null, 2));
+                showNotification('Vehicle saved in this browser.');
+            } catch (error) {
+                console.error(error);
+                showNotification('Browser storage is not available.', 'error');
+            }
+        }
+
+        function loadVehicleLocally() {
+            const savedVehicle = localStorage.getItem(VEHICLE_SAVE_KEY);
+            if (!savedVehicle) {
+                showNotification('No saved vehicle found in this browser.', 'error');
+                return;
+            }
+            importVehicleText(savedVehicle, 'Saved vehicle loaded.');
+        }
+
+        function exportVehicleFile() {
+            const text = JSON.stringify(createVehicleDocument(), null, 2);
+            const blob = new Blob([text], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            const timestamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+            link.href = url;
+            link.download = `three-vehicles-${timestamp}.json`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            showNotification('Vehicle exported as readable JSON.');
+        }
+
+        function openImportPicker() {
+            vehicleFileInput.value = '';
+            vehicleFileInput.click();
+        }
+
+        powerSlider.addEventListener('input', () => {
+            powerLevel = Number(powerSlider.value);
+            updatePowerDisplay();
+        });
+        updatePowerDisplay();
+
+        rotorTargetSelect.addEventListener('change', () => {
+            selectedRotorId = rotorTargetSelect.value;
+            updateRotorSettingsDisplay();
+        });
+        rotorAngleSlider.addEventListener('input', () => {
+            setActiveRotorSetting('angle', Number(rotorAngleSlider.value));
+        });
+        rotorDelaySlider.addEventListener('input', () => {
+            setActiveRotorSetting('delay', Number(rotorDelaySlider.value));
+        });
+        rotorSpeedSlider.addEventListener('input', () => {
+            setActiveRotorSetting('speed', Number(rotorSpeedSlider.value));
+        });
+        updateRotorSettingsDisplay();
+
+        sliderTargetSelect.addEventListener('change', () => {
+            selectedSliderId = sliderTargetSelect.value;
+            updateSliderSettingsDisplay();
+        });
+        sliderDelaySlider.addEventListener('input', () => {
+            setActiveSliderSetting('delay', Number(sliderDelaySlider.value));
+        });
+        sliderSpeedSlider.addEventListener('input', () => {
+            setActiveSliderSetting('speed', Number(sliderSpeedSlider.value));
+        });
+        updateSliderSettingsDisplay();
+
+        document.getElementById('btn-save').addEventListener('click', saveVehicleLocally);
+        document.getElementById('btn-load').addEventListener('click', loadVehicleLocally);
+        document.getElementById('btn-export').addEventListener('click', exportVehicleFile);
+        document.getElementById('btn-import').addEventListener('click', openImportPicker);
+        vehicleFileInput.addEventListener('change', async () => {
+            const file = vehicleFileInput.files && vehicleFileInput.files[0];
+            if (!file) return;
+            try {
+                importVehicleText(await file.text(), `Imported ${file.name}.`);
+            } catch (error) {
+                console.error(error);
+                showNotification('Could not read that file.', 'error');
+            }
+        });
+
+        function getGridPos(intersect) {
+            let normal = intersect.face.normal.clone();
+            // Correggiamo la normale in base alla rotazione dell'oggetto su cui clicchiamo
+            if (intersect.object.quaternion) {
+                normal.applyQuaternion(intersect.object.quaternion).normalize();
+            }
+
+            // Forziamo l'allineamento alla griglia per evitare imprecisioni
+            const absX = Math.abs(normal.x), absY = Math.abs(normal.y), absZ = Math.abs(normal.z);
+            if (absX > absY && absX > absZ) normal.set(Math.sign(normal.x), 0, 0);
+            else if (absY > absX && absY > absZ) normal.set(0, Math.sign(normal.y), 0);
+            else normal.set(0, 0, Math.sign(normal.z));
+
+            const pos = intersect.object.position.clone().add(normal);
+            pos.x = Math.round(pos.x);
+            pos.y = Math.round(pos.y);
+            pos.z = Math.round(pos.z);
+            return { pos, normal };
+        }
+
+        window.addEventListener('mousemove', (e) => {
+            if (mode !== 'build') return;
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(buildGroup.children);
+
+            if (intersects.length > 0) {
+                const intersect = intersects[0];
+                const variantKey = getCurrentVariantKey(currentTool);
+                const { pos, normal } = getPlacementFromIntersect(intersect, currentTool, variantKey);
+
+                ghostMesh.position.copy(pos).add(buildGroup.position);
+                ghostMesh.visible = true;
+
+                // Adjust ghost geometry based on tool
+                if (currentTool === 'block') {
+                    ghostMesh.geometry = createGeometryForPart('block', variantKey);
+                    ghostMesh.quaternion.identity();
+                } else {
+                    ghostMesh.geometry = createGeometryForPart(currentTool, variantKey);
+                    ghostMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+                }
+
+                if (currentTool === 'thruster') {
+                    ghostThrusterIndicator.position.copy(ghostMesh.position);
+                    ghostThrusterIndicator.quaternion.copy(ghostMesh.quaternion);
+                    ghostThrusterIndicator.visible = true;
+                } else {
+                    ghostThrusterIndicator.visible = false;
+                }
+            } else {
+                ghostMesh.visible = false;
+                ghostThrusterIndicator.visible = false;
+            }
+        });
+
+        let pointerDownPos = { x: 0, y: 0 };
+        window.addEventListener('pointerdown', (e) => {
+            pointerDownPos = { x: e.clientX, y: e.clientY };
+        });
+
+        window.addEventListener('pointerup', (e) => {
+            if (mode !== 'build' || e.target.closest('.ui-panel')) return;
+
+            // Distingue un click vero e proprio da un trascinamento telecamera
+            const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
+            if (dist > 5) return;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(buildGroup.children);
+
+            if (intersects.length > 0) {
+                const intersect = intersects[0];
+
+                if (e.button === 0) { // Left click: ADD
+                    if (budget < COSTS[currentTool]) {
+                        showNotification("Insufficient budget! Remove something with right-click.", "error");
+                        return;
+                    }
+
+                    const variantKey = getCurrentVariantKey(currentTool);
+                    const targetPart = getPartDataFromMesh(intersect.object);
+                    const { pos, normal } = getPlacementFromIntersect(intersect, currentTool, variantKey);
+                    const newExtents = getPartAxisHalfExtents(currentTool, variantKey, normal);
+
+                    // Check if space occupied
+                    if (parts.some(p => partsOverlap(p.pos, getPartAxisHalfExtents(p.type, p.variant || 'standard', p.normal || normal), pos, newExtents))) return;
+
+                    const mesh = createPartMesh(currentTool, variantKey, normal);
+
+                    mesh.position.copy(pos);
+                    mesh.castShadow = true;
+                    mesh.receiveShadow = true;
+                    const partId = nextPartId++;
+                    mesh.userData = { isPart: true, type: currentTool, variant: variantKey, partId };
+                    buildGroup.add(mesh);
+
+                    const partData = {
+                        id: partId,
+                        type: currentTool,
+                        variant: variantKey,
+                        mesh: mesh,
+                        pos: pos,
+                        normal: normal,
+                        rot: mesh.quaternion.clone(),
+                        parentId: targetPart ? targetPart.id : null
+                    };
+                    if (currentTool === 'rotor') {
+                        partData.settings = { ...getActiveRotorSettings() };
+                    }
+                    if (currentTool === 'slider') {
+                        partData.settings = { ...getActiveSliderSettings() };
+                    }
+                    parts.push(partData);
+                    if (currentTool === 'rotor') {
+                        updateRotorTargetOptions();
+                        updateRotorSettingsDisplay();
+                    }
+                    if (currentTool === 'slider') {
+                        updateSliderTargetOptions();
+                        updateSliderSettingsDisplay();
+                    }
+
+                    budget -= COSTS[currentTool];
+                    updateEconomy();
+
+                } else if (e.button === 2) { // Right click: REMOVE
+                    const obj = intersect.object;
+                    if (obj.userData.isCore) {
+                        showNotification("You cannot remove the core block!", "error");
+                        return;
+                    }
+
+                    buildGroup.remove(obj);
+                    const index = parts.findIndex(p => p.mesh === obj);
+                    if (index > -1) {
+                        const type = parts[index].type;
+                        budget += COSTS[type];
+                        parts.splice(index, 1);
+                        if (type === 'rotor') {
+                            updateRotorTargetOptions();
+                            updateRotorSettingsDisplay();
+                        }
+                        if (type === 'slider') {
+                            updateSliderTargetOptions();
+                            updateSliderSettingsDisplay();
+                        }
+                        updateEconomy();
+                    }
+                }
+            }
+        });
+
+        // Prevent context menu
+        window.addEventListener('contextmenu', e => e.preventDefault());
+
+        // UI Tool Selection
+        document.querySelectorAll('.tool-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tool-btn').forEach(b => {
+                    b.classList.remove('selected-tool');
+                    b.classList.add('border-transparent');
+                });
+                btn.classList.add('selected-tool');
+                btn.classList.remove('border-transparent');
+                currentTool = btn.dataset.type;
+            });
+        });
+
+        document.querySelectorAll('.variant-option').forEach(option => {
+            option.addEventListener('click', () => {
+                const tool = option.dataset.tool;
+                currentVariants[tool] = option.dataset.variant;
+                currentTool = tool;
+
+                document.querySelectorAll('.tool-btn').forEach(b => {
+                    b.classList.remove('selected-tool');
+                    b.classList.add('border-transparent');
+                });
+
+                const toolButton = document.querySelector(`.tool-btn[data-type="${tool}"]`);
+                if (toolButton) {
+                    toolButton.classList.add('selected-tool');
+                    toolButton.classList.remove('border-transparent');
+                }
+
+                updateVariantLabels();
+            });
+        });
+        updateVariantLabels();
+
+        // --- TRANSITION TO DRIVE MODE ---
+        document.getElementById('btn-drive').addEventListener('click', async () => {
+            try {
+                mode = 'drive';
+                updateModePill();
+                resetInputState();
+                clock.getDelta();
+                ghostMesh.visible = false;
+                ghostThrusterIndicator.visible = false;
+                document.getElementById('toolbar').classList.add('hidden');
+                document.getElementById('btn-drive').parentElement.classList.add('hidden');
+                document.getElementById('drive-info').classList.remove('hidden');
+
+                showNotification("Loading Jolt vehicle physics...");
+                await compilePhysicsVehicle();
+            } catch (error) {
+                console.error(error);
+                showNotification("Jolt physics failed to start. Check the console.", "error");
+                mode = 'build';
+                updateModePill();
+                cleanupPhysicsVehicle();
+                document.getElementById('toolbar').classList.remove('hidden');
+                document.getElementById('btn-drive').parentElement.classList.remove('hidden');
+                document.getElementById('drive-info').classList.add('hidden');
+                buildGroup.visible = true;
+            }
+        });
+
+        document.getElementById('btn-build').addEventListener('click', () => {
+            mode = 'build';
+            updateModePill();
+            resetInputState();
+            document.getElementById('toolbar').classList.remove('hidden');
+            document.getElementById('btn-drive').parentElement.classList.remove('hidden');
+            document.getElementById('drive-info').classList.add('hidden');
+
+            cleanupPhysicsVehicle();
+
+            // Restore build group visibility and position
+            buildGroup.visible = true;
+            buildGroup.position.set(0, BUILD_SPAWN_HEIGHT, 0);
+            buildGroup.rotation.set(0, 0, 0);
+            parts.forEach(p => p.mesh.visible = true);
+
+            focusBuildCamera();
+        });
+
+        document.getElementById('btn-drive-reset').addEventListener('click', resetDriveVehicleInPlace);
+
+        document.getElementById('btn-reset').addEventListener('click', () => {
+            if (confirm("Do you want to dismantle the vehicle and recover all your budget?")) initCore();
+        });
+
+        function cleanupPhysicsVehicle(keepRebuildLock = false) {
+            if (physicsSystem && joltVehicleStepListener) {
+                physicsSystem.RemoveStepListener(joltVehicleStepListener);
+            }
+            if (physicsSystem && joltVehicleConstraint) {
+                physicsSystem.RemoveConstraint(joltVehicleConstraint);
+            }
+            if (bodyInterface) {
+                joltBodyIds.forEach(id => {
+                    bodyInterface.RemoveBody(id);
+                    bodyInterface.DestroyBody(id);
+                });
+            }
+
+            destroyJoltObject(joltVehicleStepListener);
+            destroyJoltObject(joltVehicleConstraint);
+            destroyJoltObject(jolt);
+
+            physicsVisuals.forEach(v => scene.remove(v));
+            world = null;
+            jolt = null;
+            physicsSystem = null;
+            bodyInterface = null;
+            chassisBody = null;
+            chassisBodyId = null;
+            joltBodyIds = [];
+            physicsVisuals = [];
+            wheelConstraints = [];
+            joltVehicleConstraint = null;
+            joltVehicleController = null;
+            joltVehicleStepListener = null;
+            joltVehiclePreviousForward = 1;
+            thrusterJets = [];
+            driveVisualParts = new Map();
+            smoothedSteeringAngle = 0;
+            if (!keepRebuildLock) joltRebuildPending = false;
+        }
+
+        function getPhysicsPartHalfExtents(part) {
+            const variantKey = part.variant || 'standard';
+            if (part.type === 'wheel') {
+                const radius = getPartVariant('wheel', variantKey).physicsRadius;
+                return new THREE.Vector3(radius, radius, radius);
+            }
+
+            return getPartAxisHalfExtents(part.type, variantKey, part.normal || new THREE.Vector3(0, 1, 0));
+        }
+
+        function getPhysicsPartMass(part) {
+            const variant = getPartVariant(part.type, part.variant || 'standard');
+            if (part.type === 'core') return 180;
+            if (part.type === 'block') return Math.max(14, Math.pow(variant.size, 3) * 120);
+            if (part.type === 'thruster') return 45;
+            if (part.type === 'rotor') return 55;
+            if (part.type === 'slider') return 65;
+            if (part.type === 'wheel') return variant.radius > 1 ? 55 : 28;
+            return 30;
+        }
+
+        function getChassisPhysicsMass() {
+            const mass = parts
+                .filter(part => part.type !== 'wheel')
+                .reduce((total, part) => total + getPhysicsPartMass(part), 0);
+            return Math.min(1600, Math.max(220, mass));
+        }
+
+        function getDriveSpawnHeight() {
+            let minLocalY = Infinity;
+            parts.forEach(part => {
+                const extents = getPhysicsPartHalfExtents(part);
+                minLocalY = Math.min(minLocalY, part.pos.y - extents.y);
+            });
+
+            if (!Number.isFinite(minLocalY)) return 2;
+            return Math.max(DRIVE_GROUND_CLEARANCE, -minLocalY + DRIVE_GROUND_CLEARANCE);
+        }
+
+        function joltVec3ToThree(v) {
+            return new THREE.Vector3(v.GetX(), v.GetY(), v.GetZ());
+        }
+
+        function joltQuatToThree(q) {
+            return new THREE.Quaternion(q.GetX(), q.GetY(), q.GetZ(), q.GetW());
+        }
+
+        function threeVec3ToJolt(v) {
+            return new Jolt.Vec3(v.x, v.y, v.z);
+        }
+
+        function threeRVec3ToJolt(v) {
+            return new Jolt.RVec3(v.x, v.y, v.z);
+        }
+
+        function threeQuatToJolt(q) {
+            return new Jolt.Quat(q.x, q.y, q.z, q.w);
+        }
+
+        function getChassisThreeTransform() {
+            if (!chassisBody) return null;
+            return {
+                position: joltVec3ToThree(chassisBody.GetPosition()),
+                quaternion: joltQuatToThree(chassisBody.GetRotation())
+            };
+        }
+
+        function syncPhysicsVisuals() {
+            const transform = getChassisThreeTransform();
+            if (!transform) return;
+
+            const chassisVisual = physicsVisuals[0];
+            if (chassisVisual) {
+                chassisVisual.position.copy(transform.position);
+                chassisVisual.quaternion.copy(transform.quaternion);
+            }
+
+            wheelConstraints.forEach(wc => {
+                if (!wc.visual || !joltVehicleConstraint) return;
+                const wheelTransform = joltVehicleConstraint.GetWheelLocalTransform(wc.index, wc.renderRight, wc.renderUp);
+                wc.visual.position.copy(joltVec3ToThree(wheelTransform.GetTranslation()));
+                wc.visual.quaternion.copy(joltQuatToThree(wheelTransform.GetRotation().GetQuaternion()));
+            });
+        }
+
+        function clearChassisMotion() {
+            if (!bodyInterface || !chassisBodyId) return;
+            bodyInterface.SetLinearAndAngularVelocity(
+                chassisBodyId,
+                new Jolt.Vec3(0, 0, 0),
+                new Jolt.Vec3(0, 0, 0)
+            );
+            bodyInterface.ActivateBody(chassisBodyId);
+        }
+
+        function getYawFromThreeQuaternion(q) {
+            const sinY = 2 * (q.w * q.y + q.x * q.z);
+            const cosY = 1 - 2 * (q.y * q.y + q.z * q.z);
+            return Math.atan2(sinY, cosY);
+        }
+
+        function resetDriveVehicleInPlace() {
+            if (!chassisBody || mode !== 'drive') return;
+
+            resetInputState();
+            smoothedSteeringAngle = 0;
+            driveSpawnHeight = getDriveSpawnHeight();
+            const transform = getChassisThreeTransform();
+            if (!transform) return;
+
+            const resetYaw = getYawFromThreeQuaternion(transform.quaternion);
+            const resetRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), resetYaw);
+            const resetPosition = new THREE.Vector3(transform.position.x, driveSpawnHeight, transform.position.z);
+
+            bodyInterface.SetPositionRotationAndVelocity(
+                chassisBodyId,
+                threeRVec3ToJolt(resetPosition),
+                threeQuatToJolt(resetRotation),
+                new Jolt.Vec3(0, 0, 0),
+                new Jolt.Vec3(0, 0, 0)
+            );
+
+            controls.target.copy(resetPosition);
+            clock.getDelta();
+            syncPhysicsVisuals();
+            showNotification("Car reset in place.");
+        }
+
+        function getRotorSettings(part) {
+            const settings = part.settings || {};
+            return {
+                angle: Number.isFinite(settings.angle) ? settings.angle : rotorAngle,
+                delay: Number.isFinite(settings.delay) ? settings.delay : rotorDelay,
+                speed: Number.isFinite(settings.speed) ? settings.speed : rotorSpeed
+            };
+        }
+
+        function collectRotorChildren(rotor) {
+            const affected = [];
+            const visit = (parentId) => {
+                parts.forEach(part => {
+                    if (part.parentId !== parentId || part.id === rotor.id) return;
+                    affected.push(part);
+                    visit(part.id);
+                });
+            };
+            visit(rotor.id);
+            return affected;
+        }
+
+        async function rebuildDriveVehicleAfterRotorMotion() {
+            if (mode !== 'drive' || joltRebuildPending) return;
+            joltRebuildPending = true;
+
+            try {
+                const previousTransform = getChassisThreeTransform();
+                await compilePhysicsVehicle(true);
+                smoothedSteeringAngle = 0;
+
+                if (previousTransform && chassisBodyId && bodyInterface) {
+                    bodyInterface.SetPositionRotationAndVelocity(
+                        chassisBodyId,
+                        threeRVec3ToJolt(previousTransform.position),
+                        threeQuatToJolt(previousTransform.quaternion),
+                        new Jolt.Vec3(0, 0, 0),
+                        new Jolt.Vec3(0, 0, 0)
+                    );
+                }
+
+                syncPhysicsVisuals();
+            } finally {
+                joltRebuildPending = false;
+            }
+        }
+
+        function updatePartVisuals(part) {
+            if (part.mesh) {
+                part.mesh.position.copy(part.pos);
+                part.mesh.quaternion.copy(part.rot);
+            }
+
+            const driveVisual = driveVisualParts.get(part.id);
+            if (!driveVisual) return;
+
+            if (driveVisual.followsChassis) {
+                driveVisual.mesh.position.copy(part.pos);
+                driveVisual.mesh.quaternion.copy(part.rot);
+                return;
+            }
+
+            const transform = getChassisThreeTransform();
+            if (transform) {
+                const chassisPosition = transform.position;
+                const chassisRotation = transform.quaternion;
+                const worldOffset = part.pos.clone().applyQuaternion(chassisRotation);
+                driveVisual.mesh.position.copy(chassisPosition.add(worldOffset));
+                driveVisual.mesh.quaternion.copy(chassisRotation).multiply(part.rot);
+            }
+        }
+
+        function applyRotorRotationStep(rotor, angleDeg) {
+            if (!parts.includes(rotor) || angleDeg === 0) return false;
+
+            const affected = collectRotorChildren(rotor);
+            if (affected.length === 0) return false;
+
+            const axis = (rotor.normal || new THREE.Vector3(0, 1, 0)).clone().normalize();
+            const pivot = rotor.pos.clone();
+            const rotation = new THREE.Quaternion().setFromAxisAngle(axis, THREE.MathUtils.degToRad(angleDeg));
+
+            affected.forEach(part => {
+                const offset = part.pos.clone().sub(pivot).applyQuaternion(rotation);
+                part.pos.copy(pivot.clone().add(offset));
+
+                const partRotation = part.rot ? part.rot.clone() : part.mesh.quaternion.clone();
+                part.rot = rotation.clone().multiply(partRotation).normalize();
+                part.normal = (part.normal || new THREE.Vector3(0, 1, 0)).clone().applyQuaternion(rotation).normalize();
+                updatePartVisuals(part);
+            });
+
+            return true;
+        }
+
+        function startRotorAnimation(rotor, settingsOverride = null) {
+            if (!parts.includes(rotor) || rotor.isAnimating) return false;
+
+            const affected = collectRotorChildren(rotor);
+            if (affected.length === 0) return false;
+
+            const settings = settingsOverride || getRotorSettings(rotor);
+            const angle = Number(settings.angle);
+            const speed = Math.abs(Number(settings.speed));
+            if (!Number.isFinite(angle) || angle === 0 || !Number.isFinite(speed) || speed <= 0) return false;
+
+            rotor.isAnimating = true;
+            rotorAnimations.push({
+                rotor,
+                remainingAngle: angle,
+                speed
+            });
+            return true;
+        }
+
+        function updateRotorAnimations(delta) {
+            if (rotorAnimations.length === 0 || delta <= 0) return;
+
+            let completed = false;
+            rotorAnimations = rotorAnimations.filter(animation => {
+                if (!parts.includes(animation.rotor)) {
+                    completed = true;
+                    return false;
+                }
+
+                const stepSize = Math.min(Math.abs(animation.remainingAngle), animation.speed * delta);
+                const stepAngle = Math.sign(animation.remainingAngle) * stepSize;
+                const moved = applyRotorRotationStep(animation.rotor, stepAngle);
+                if (!moved) animation.remainingAngle = 0;
+                else animation.remainingAngle -= stepAngle;
+
+                if (Math.abs(animation.remainingAngle) <= 0.001) {
+                    animation.rotor.isAnimating = false;
+                    completed = true;
+                    return false;
+                }
+
+                return true;
+            });
+
+            if (completed) {
+                if (mode === 'drive') rebuildDriveVehicleAfterRotorMotion();
+                updateRotorTargetOptions();
+                updateRotorSettingsDisplay();
+            }
+        }
+
+        function activateRotors(direction = 1) {
+            const rotors = parts.filter(part => part.type === 'rotor');
+            if (rotors.length === 0) {
+                showNotification("No rotors installed.", "error");
+                return;
+            }
+
+            let started = 0;
+            let delayed = 0;
+            let skipped = 0;
+
+            rotors.forEach(rotor => {
+                if (rotor.isPending || rotor.isAnimating) {
+                    skipped++;
+                    return;
+                }
+
+                const settings = { ...getRotorSettings(rotor) };
+                settings.angle *= direction;
+                if (settings.delay > 0) {
+                    rotor.isPending = true;
+                    delayed++;
+                    const timer = setTimeout(() => {
+                        rotor.isPending = false;
+                        rotorTimers = rotorTimers.filter(activeTimer => activeTimer !== timer);
+                        if (startRotorAnimation(rotor, settings)) {
+                            showNotification("Delayed rotor started.");
+                        }
+                    }, settings.delay * 1000);
+                    rotorTimers.push(timer);
+                    return;
+                }
+
+                if (startRotorAnimation(rotor, settings)) started++;
+                else skipped++;
+            });
+
+            if (started > 0 || delayed > 0) {
+                showNotification(`${started} rotor(s) started, ${delayed} countdown(s) started.`);
+            } else if (skipped > 0) {
+                showNotification("Rotors need attached parts on them.", "error");
+            }
+        }
+
+        function getSliderSettings(part) {
+            const settings = part.settings || {};
+            return {
+                delay: Number.isFinite(settings.delay) ? settings.delay : sliderDelay,
+                speed: Number.isFinite(settings.speed) ? settings.speed : sliderSpeed
+            };
+        }
+
+        function collectSliderAssembly(slider) {
+            const affected = [slider];
+            const visit = (parentId) => {
+                parts.forEach(part => {
+                    if (part.parentId !== parentId || part.id === slider.id) return;
+                    affected.push(part);
+                    visit(part.id);
+                });
+            };
+            visit(slider.id);
+            return affected;
+        }
+
+        function getSliderTravelAxis(slider) {
+            const surfaceNormal = (slider.normal || new THREE.Vector3(0, 1, 0)).clone();
+            if (surfaceNormal.lengthSq() === 0) surfaceNormal.set(0, 1, 0);
+            surfaceNormal.normalize();
+
+            const rotation = slider.rot || (slider.mesh ? slider.mesh.quaternion : new THREE.Quaternion());
+            const arrowAxis = new THREE.Vector3(0, 0, 1).applyQuaternion(rotation).normalize();
+            const travelAxis = arrowAxis.sub(surfaceNormal.clone().multiplyScalar(arrowAxis.dot(surfaceNormal)));
+
+            if (travelAxis.lengthSq() > 0.0001) return travelAxis.normalize();
+
+            const fallback = Math.abs(surfaceNormal.y) < 0.9
+                ? new THREE.Vector3(0, 1, 0)
+                : new THREE.Vector3(1, 0, 0);
+            return fallback.cross(surfaceNormal).normalize();
+        }
+
+        function findSliderBlocker(affected, offset) {
+            const affectedIds = new Set(affected.map(part => part.id));
+            for (const movingPart of affected) {
+                const movingExtents = getPartAxisHalfExtents(
+                    movingPart.type,
+                    movingPart.variant || 'standard',
+                    movingPart.normal || new THREE.Vector3(0, 1, 0)
+                );
+                const proposedPos = movingPart.pos.clone().add(offset);
+
+                for (const blocker of parts) {
+                    if (affectedIds.has(blocker.id)) continue;
+                    const blockerExtents = getPartAxisHalfExtents(
+                        blocker.type,
+                        blocker.variant || 'standard',
+                        blocker.normal || new THREE.Vector3(0, 1, 0)
+                    );
+                    if (partsOverlap(proposedPos, movingExtents, blocker.pos, blockerExtents)) return blocker;
+                }
+            }
+
+            return null;
+        }
+
+        function translateSliderAssembly(affected, offset) {
+            affected.forEach(part => {
+                part.pos.add(offset);
+                updatePartVisuals(part);
+            });
+        }
+
+        function applySliderTranslationStep(slider, direction, distance) {
+            if (!parts.includes(slider) || distance <= 0) return { moved: false, blocked: false };
+
+            const affected = collectSliderAssembly(slider);
+            const axis = getSliderTravelAxis(slider).multiplyScalar(direction);
+            const offset = axis.clone().multiplyScalar(distance);
+
+            if (!findSliderBlocker(affected, offset)) {
+                translateSliderAssembly(affected, offset);
+                return { moved: true, blocked: false };
+            }
+
+            let low = 0;
+            let high = distance;
+            for (let i = 0; i < 8; i++) {
+                const mid = (low + high) / 2;
+                const midOffset = axis.clone().multiplyScalar(mid);
+                if (findSliderBlocker(affected, midOffset)) high = mid;
+                else low = mid;
+            }
+
+            if (low > 0.001) {
+                translateSliderAssembly(affected, axis.clone().multiplyScalar(low));
+                return { moved: true, blocked: true };
+            }
+
+            return { moved: false, blocked: true };
+        }
+
+        function startSliderAnimation(slider, direction = 1, settingsOverride = null) {
+            if (!parts.includes(slider) || slider.isAnimating) return false;
+
+            const settings = settingsOverride || getSliderSettings(slider);
+            const speed = Math.abs(Number(settings.speed));
+            if (!Number.isFinite(speed) || speed <= 0) return false;
+
+            slider.isAnimating = true;
+            sliderAnimations.push({
+                slider,
+                direction: direction >= 0 ? 1 : -1,
+                speed
+            });
+            return true;
+        }
+
+        function updateSliderAnimations(delta) {
+            if (sliderAnimations.length === 0 || delta <= 0) return;
+
+            let completed = false;
+            let blockedCount = 0;
+            sliderAnimations = sliderAnimations.filter(animation => {
+                if (!parts.includes(animation.slider)) {
+                    completed = true;
+                    return false;
+                }
+
+                let remainingDistance = animation.speed * delta;
+                let blocked = false;
+                const maxStep = 0.05;
+
+                while (remainingDistance > 0.0001) {
+                    const stepDistance = Math.min(maxStep, remainingDistance);
+                    const result = applySliderTranslationStep(animation.slider, animation.direction, stepDistance);
+                    remainingDistance -= stepDistance;
+
+                    if (result.blocked) {
+                        blocked = true;
+                        break;
+                    }
+                }
+
+                if (blocked) {
+                    animation.slider.isAnimating = false;
+                    completed = true;
+                    blockedCount++;
+                    return false;
+                }
+
+                return true;
+            });
+
+            if (completed) {
+                if (blockedCount > 0) showNotification(`${blockedCount} slider(s) stopped at an obstacle.`);
+                if (mode === 'drive') rebuildDriveVehicleAfterRotorMotion();
+                updateSliderTargetOptions();
+                updateSliderSettingsDisplay();
+            }
+        }
+
+        function activateSliders(direction = 1) {
+            const sliders = parts.filter(part => part.type === 'slider');
+            if (sliders.length === 0) {
+                showNotification("No sliders installed.", "error");
+                return;
+            }
+
+            let started = 0;
+            let delayed = 0;
+            let skipped = 0;
+
+            sliders.forEach(slider => {
+                if (slider.isPending) {
+                    skipped++;
+                    return;
+                }
+
+                const settings = { ...getSliderSettings(slider) };
+                if (slider.isAnimating) {
+                    const activeAnimation = sliderAnimations.find(animation => animation.slider === slider);
+                    if (activeAnimation) {
+                        activeAnimation.direction = direction >= 0 ? 1 : -1;
+                        activeAnimation.speed = Math.abs(Number(settings.speed)) || sliderSpeed;
+                        started++;
+                    } else {
+                        skipped++;
+                    }
+                    return;
+                }
+
+                if (settings.delay > 0) {
+                    slider.isPending = true;
+                    delayed++;
+                    const timer = setTimeout(() => {
+                        slider.isPending = false;
+                        sliderTimers = sliderTimers.filter(activeTimer => activeTimer !== timer);
+                        if (startSliderAnimation(slider, direction, settings)) {
+                            showNotification("Delayed slider started.");
+                        }
+                    }, settings.delay * 1000);
+                    sliderTimers.push(timer);
+                    return;
+                }
+
+                if (startSliderAnimation(slider, direction, settings)) started++;
+                else skipped++;
+            });
+
+            if (started > 0 || delayed > 0) {
+                showNotification(`${started} slider(s) started, ${delayed} countdown(s) started.`);
+            } else if (skipped > 0) {
+                showNotification("Sliders are already moving.", "error");
+            }
+        }
+
+        function getWheelRollDirection(normal) {
+            const axle = (normal || new THREE.Vector3(1, 0, 0)).clone();
+            if (axle.lengthSq() === 0) return null;
+            axle.normalize();
+
+            const rollDirection = axle.cross(new THREE.Vector3(0, 1, 0));
+            if (rollDirection.lengthSq() === 0) return null;
+            return rollDirection.normalize();
+        }
+
+        function resolveDriveConfiguration(wheelParts) {
+            const axisX = new THREE.Vector3(1, 0, 0);
+            const axisZ = new THREE.Vector3(0, 0, 1);
+            let xScore = 0;
+            let zScore = 0;
+
+            wheelParts.forEach(part => {
+                const rollDirection = getWheelRollDirection(part.normal);
+                if (!rollDirection) return;
+                xScore += Math.abs(rollDirection.dot(axisX));
+                zScore += Math.abs(rollDirection.dot(axisZ));
+            });
+
+            const driveAxis = (zScore >= xScore ? axisZ : axisX).clone();
+            const sideAxis = driveAxis.z !== 0 ? axisX.clone() : axisZ.clone();
+
+            return { driveAxis, sideAxis };
+        }
+
+        function resolveSteeringThreshold(wheelParts, driveAxis) {
+            const projections = wheelParts.map(part => part.pos.dot(driveAxis));
+            if (projections.length === 0) return 0;
+
+            const minProjection = Math.min(...projections);
+            const maxProjection = Math.max(...projections);
+            if (maxProjection - minProjection < 0.25) return minProjection;
+            return (minProjection + maxProjection) / 2;
+        }
+
+        function getJoltBoxShapeSettingsForPart(part) {
+            const variant = getPartVariant(part.type, part.variant || 'standard');
+            if (part.type === 'thruster' || part.type === 'rotor') {
+                return new Jolt.BoxShapeSettings(new Jolt.Vec3(variant.radius, variant.height / 2, variant.radius));
+            }
+            if (part.type === 'slider') {
+                return new Jolt.BoxShapeSettings(new Jolt.Vec3(variant.width / 2, variant.height / 2, variant.depth / 2));
+            }
+
+            const size = variant.size || 1;
+            return new Jolt.BoxShapeSettings(new Jolt.Vec3(size / 2, size / 2, size / 2));
+        }
+
+        function getChassisCenterOfMassOffset() {
+            let minY = Infinity;
+            let maxY = -Infinity;
+            parts.forEach(part => {
+                if (part.type === 'wheel') return;
+                const extents = getPhysicsPartHalfExtents(part);
+                minY = Math.min(minY, part.pos.y - extents.y);
+                maxY = Math.max(maxY, part.pos.y + extents.y);
+            });
+            const height = Number.isFinite(maxY - minY) ? maxY - minY : 1;
+            return Math.min(0.65, Math.max(0.18, height * 0.18));
+        }
+
+        function createWheelPairs(wheelMeta) {
+            const pairs = [];
+            const left = wheelMeta.filter(meta => meta.sideProjection >= 0).sort((a, b) => a.forwardProjection - b.forwardProjection);
+            const right = wheelMeta.filter(meta => meta.sideProjection < 0).sort((a, b) => a.forwardProjection - b.forwardProjection);
+            const usedRight = new Set();
+
+            left.forEach(leftMeta => {
+                let best = null;
+                let bestDistance = Infinity;
+                right.forEach(rightMeta => {
+                    if (usedRight.has(rightMeta.index)) return;
+                    const distance = Math.abs(leftMeta.forwardProjection - rightMeta.forwardProjection);
+                    if (distance < bestDistance) {
+                        best = rightMeta;
+                        bestDistance = distance;
+                    }
+                });
+
+                if (best) {
+                    usedRight.add(best.index);
+                    pairs.push({ left: leftMeta, right: best });
+                }
+            });
+
+            if (pairs.length === 0 && wheelMeta.length >= 2) {
+                pairs.push({ left: wheelMeta[0], right: wheelMeta[1] });
+            }
+
+            return pairs;
+        }
+
+        async function compilePhysicsVehicle(keepRebuildLock = false) {
+            cleanupPhysicsVehicle(keepRebuildLock);
+            await initPhysics();
+            buildGroup.visible = false;
+            const wheelParts = parts.filter(part => part.type === 'wheel');
+            const driveConfig = resolveDriveConfiguration(wheelParts);
+            const steeringThreshold = resolveSteeringThreshold(wheelParts, driveConfig.driveAxis);
+            driveSpawnHeight = getDriveSpawnHeight();
+
+            const mainMeshGroup = new THREE.Group();
+            scene.add(mainMeshGroup);
+            physicsVisuals.push(mainMeshGroup);
+
+            thrusterJets = [];
+            driveVisualParts = new Map();
+
+            const compoundSettings = new Jolt.StaticCompoundShapeSettings();
+            let chassisShapeCount = 0;
+
+            parts.forEach(part => {
+                if (part.type === 'core' || part.type === 'block' || part.type === 'thruster' || part.type === 'rotor' || part.type === 'slider') {
+                    if (part.type === 'thruster') {
+                        const exhaustDirection = (part.normal || new THREE.Vector3(0, 1, 0)).clone().normalize();
+                        thrusterJets.push({
+                            offset: part.pos.clone(),
+                            exhaustDirection
+                        });
+                    }
+
+                    compoundSettings.AddShape(
+                        threeVec3ToJolt(part.pos),
+                        threeQuatToJolt(part.rot || new THREE.Quaternion()),
+                        getJoltBoxShapeSettingsForPart(part),
+                        0
+                    );
+                    chassisShapeCount++;
+
+                    const visualMesh = part.mesh.clone();
+                    visualMesh.visible = true;
+                    visualMesh.position.copy(part.pos);
+                    mainMeshGroup.add(visualMesh);
+                    driveVisualParts.set(part.id, { mesh: visualMesh, followsChassis: true });
+                }
+            });
+
+            if (chassisShapeCount === 0) {
+                compoundSettings.AddShape(
+                    new Jolt.Vec3(0, 0, 0),
+                    Jolt.Quat.prototype.sIdentity(),
+                    new Jolt.BoxShapeSettings(new Jolt.Vec3(0.5, 0.5, 0.5)),
+                    0
+                );
+            }
+
+            const centerOfMassOffset = new Jolt.Vec3(0, -getChassisCenterOfMassOffset(), 0);
+            const chassisShapeSettings = new Jolt.OffsetCenterOfMassShapeSettings(centerOfMassOffset, compoundSettings);
+            const chassisShape = chassisShapeSettings.Create().Get();
+            const chassisSettings = new Jolt.BodyCreationSettings(
+                chassisShape,
+                new Jolt.RVec3(0, driveSpawnHeight, 0),
+                Jolt.Quat.prototype.sIdentity(),
+                Jolt.EMotionType_Dynamic,
+                JOLT_LAYER_MOVING
+            );
+            chassisSettings.mOverrideMassProperties = Jolt.EOverrideMassProperties_CalculateInertia;
+            chassisSettings.mMassPropertiesOverride.mMass = getChassisPhysicsMass();
+
+            chassisBody = bodyInterface.CreateBody(chassisSettings);
+            chassisBody.SetFriction(0.85);
+            chassisBody.SetRestitution(0.02);
+            chassisBodyId = chassisBody.GetID();
+            bodyInterface.AddBody(chassisBodyId, Jolt.EActivation_Activate);
+            if (bodyInterface.SetMaxAngularVelocity) bodyInterface.SetMaxAngularVelocity(chassisBodyId, 10);
+            if (bodyInterface.SetMaxLinearVelocity) bodyInterface.SetMaxLinearVelocity(chassisBodyId, 65);
+            joltBodyIds.push(chassisBodyId);
+            Jolt.destroy(chassisSettings);
+
+            const vehicleSettings = new Jolt.VehicleConstraintSettings();
+            vehicleSettings.mUp = new Jolt.Vec3(0, 1, 0);
+            vehicleSettings.mForward = new Jolt.Vec3(driveConfig.driveAxis.x, 0, driveConfig.driveAxis.z);
+            vehicleSettings.mMaxPitchRollAngle = THREE.MathUtils.degToRad(70);
+            vehicleSettings.mWheels.clear();
+
+            const wheelMeta = [];
+            wheelParts.forEach((part, index) => {
+                const variant = getPartVariant('wheel', part.variant || 'standard');
+                const wheelSettings = new Jolt.WheelSettingsWV();
+                const radius = variant.physicsRadius;
+                const wheelForwardPosition = part.pos.dot(driveConfig.driveAxis);
+                const sideProjection = part.pos.dot(driveConfig.sideAxis);
+                const isSteerable = wheelForwardPosition <= steeringThreshold;
+
+                wheelSettings.mPosition = threeVec3ToJolt(part.pos);
+                wheelSettings.mWheelForward = new Jolt.Vec3(driveConfig.driveAxis.x, 0, driveConfig.driveAxis.z);
+                wheelSettings.mWheelUp = new Jolt.Vec3(0, 1, 0);
+                wheelSettings.mSuspensionDirection = new Jolt.Vec3(0, -1, 0);
+                wheelSettings.mSteeringAxis = new Jolt.Vec3(0, 1, 0);
+                wheelSettings.mRadius = radius;
+                wheelSettings.mWidth = variant.width;
+                wheelSettings.mSuspensionMinLength = Math.max(0.18, radius * 0.24);
+                wheelSettings.mSuspensionMaxLength = Math.max(0.55, radius * 0.48);
+                wheelSettings.mMaxSteerAngle = isSteerable ? STEERING_MAX_ANGLE : 0;
+                wheelSettings.mMaxBrakeTorque = 1800;
+                wheelSettings.mMaxHandBrakeTorque = isSteerable ? 0 : 4200;
+                wheelSettings.mInertia = Math.max(0.5, getPhysicsPartMass(part) * radius * radius * 0.5);
+                wheelSettings.mAngularDamping = 0.35;
+                wheelSettings.mEnableSuspensionForcePoint = true;
+                wheelSettings.mSuspensionForcePoint = new Jolt.Vec3(part.pos.x, part.pos.y + Math.min(radius * 0.25, 0.35), part.pos.z);
+                vehicleSettings.mWheels.push_back(wheelSettings);
+
+                const visualWheel = part.mesh.clone();
+                visualWheel.castShadow = true;
+                mainMeshGroup.add(visualWheel);
+                driveVisualParts.set(part.id, { mesh: visualWheel, followsChassis: false });
+
+                const meta = {
+                    index,
+                    part,
+                    visual: visualWheel,
+                    forwardProjection: wheelForwardPosition,
+                    sideProjection,
+                    isSteerable,
+                    renderRight: new Jolt.Vec3(0, 1, 0),
+                    renderUp: new Jolt.Vec3(1, 0, 0)
+                };
+                wheelMeta.push(meta);
+                wheelConstraints.push(meta);
+            });
+
+            if (wheelMeta.length === 0) {
+                if (physicsSystem.OptimizeBroadPhase) physicsSystem.OptimizeBroadPhase();
+                syncPhysicsVisuals();
+                return;
+            }
+
+            const controllerSettings = new Jolt.WheeledVehicleControllerSettings();
+            controllerSettings.mEngine.mMaxTorque = 600 * Math.max(1, powerLevel / 100);
+            controllerSettings.mTransmission.mClutchStrength = 10;
+            controllerSettings.mDifferentials.clear();
+
+            const wheelPairs = createWheelPairs(wheelMeta);
+            wheelPairs.forEach(pair => {
+                const differential = new Jolt.VehicleDifferentialSettings();
+                differential.mLeftWheel = pair.left.index;
+                differential.mRightWheel = pair.right.index;
+                differential.mLimitedSlipRatio = 1.45;
+                differential.mEngineTorqueRatio = 1 / Math.max(1, wheelPairs.length);
+                controllerSettings.mDifferentials.push_back(differential);
+            });
+            controllerSettings.mDifferentialLimitedSlipRatio = 1.45;
+            vehicleSettings.mController = controllerSettings;
+
+            vehicleSettings.mAntiRollBars.clear();
+            wheelPairs.forEach(pair => {
+                const antiRollBar = new Jolt.VehicleAntiRollBar();
+                antiRollBar.mLeftWheel = pair.left.index;
+                antiRollBar.mRightWheel = pair.right.index;
+                vehicleSettings.mAntiRollBars.push_back(antiRollBar);
+            });
+
+            joltVehicleConstraint = new Jolt.VehicleConstraint(chassisBody, vehicleSettings);
+            joltVehicleConstraint.SetVehicleCollisionTester(new Jolt.VehicleCollisionTesterCastCylinder(JOLT_LAYER_MOVING, 0.05));
+            physicsSystem.AddConstraint(joltVehicleConstraint);
+            joltVehicleStepListener = new Jolt.VehicleConstraintStepListener(joltVehicleConstraint);
+            physicsSystem.AddStepListener(joltVehicleStepListener);
+            joltVehicleController = Jolt.castObject(joltVehicleConstraint.GetController(), Jolt.WheeledVehicleController);
+
+            if (physicsSystem.OptimizeBroadPhase) physicsSystem.OptimizeBroadPhase();
+            syncPhysicsVisuals();
+        }
+
+        function updateJoltVehicleInput(powerScale, physicsDelta) {
+            if (!joltVehicleController || !chassisBody || !bodyInterface) return;
+
+            const engine = joltVehicleController.GetEngine();
+            if (engine) engine.mMaxTorque = 600 * Math.max(1, powerScale);
+
+            let forward = keys.w ? Math.min(1, powerScale) : (keys.s ? -Math.min(1, powerScale) : 0);
+            const targetRight = keys.d ? 1 : (keys.a ? -1 : 0);
+            const steeringBlend = 1 - Math.exp(-STEERING_RESPONSE * physicsDelta);
+            smoothedSteeringAngle += (targetRight - smoothedSteeringAngle) * steeringBlend;
+            const right = smoothedSteeringAngle;
+            let brake = 0;
+            const handBrake = 0;
+
+            if (joltVehiclePreviousForward * forward < 0) {
+                const rotation = joltQuatToThree(chassisBody.GetRotation()).conjugate();
+                const localVelocity = joltVec3ToThree(bodyInterface.GetLinearVelocity(chassisBodyId)).applyQuaternion(rotation);
+                const driveAxis = resolveDriveConfiguration(parts.filter(part => part.type === 'wheel')).driveAxis;
+                const forwardSpeed = localVelocity.dot(driveAxis);
+
+                if ((forward > 0 && forwardSpeed < -0.1) || (forward < 0 && forwardSpeed > 0.1)) {
+                    forward = 0;
+                    brake = 1;
+                } else {
+                    joltVehiclePreviousForward = forward || joltVehiclePreviousForward;
+                }
+            }
+
+            joltVehicleController.SetDriverInput(forward, right, brake, handBrake);
+            if (forward !== 0 || right !== 0 || brake !== 0) bodyInterface.ActivateBody(chassisBodyId);
+        }
+
+        // --- INPUT & CONTROLS ---
+        const keys = { w: false, a: false, s: false, d: false, space: false };
+        function resetInputState() {
+            Object.keys(keys).forEach(key => keys[key] = false);
+        }
+
+        window.addEventListener('keydown', e => {
+            const key = e.key.toLowerCase();
+            if (key === 'e' && !e.repeat) {
+                activateRotors(1);
+                return;
+            }
+            if (key === 'q' && !e.repeat) {
+                activateRotors(-1);
+                return;
+            }
+            if (key === 'z' && !e.repeat) {
+                activateSliders(1);
+                return;
+            }
+            if (key === 'c' && !e.repeat) {
+                activateSliders(-1);
+                return;
+            }
+            if (key === ' ') keys.space = true;
+            else if (keys.hasOwnProperty(key)) keys[key] = true;
+        });
+        window.addEventListener('keyup', e => {
+            const key = e.key.toLowerCase();
+            if (key === ' ') keys.space = false;
+            else if (keys.hasOwnProperty(key)) keys[key] = false;
+        });
+        window.addEventListener('blur', resetInputState);
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) resetInputState();
+        });
+
+        // --- ANIMATION LOOP ---
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            controls.update();
+
+            if (mode === 'drive' && world) {
+                const physicsDelta = Math.min(delta, PHYSICS_MAX_DELTA);
+                const powerScale = powerLevel / 100;
+                updateJoltVehicleInput(powerScale, physicsDelta);
+
+                if (chassisBody && bodyInterface && keys.space && thrusterJets.length > 0) {
+                    const transform = getChassisThreeTransform();
+                    const thrustStrength = 3600 * powerScale;
+                    thrusterJets.forEach(jet => {
+                        const forceWorld = jet.exhaustDirection.clone()
+                            .multiplyScalar(-thrustStrength)
+                            .applyQuaternion(transform.quaternion);
+                        const pointWorld = jet.offset.clone()
+                            .applyQuaternion(transform.quaternion)
+                            .add(transform.position);
+                        bodyInterface.AddForce(
+                            chassisBodyId,
+                            threeVec3ToJolt(forceWorld),
+                            threeRVec3ToJolt(pointWorld),
+                            Jolt.EActivation_Activate
+                        );
+                    });
+                }
+
+                const physicsSteps = Math.min(PHYSICS_MAX_SUBSTEPS, physicsDelta > 1 / 55 ? 2 : 1);
+                jolt.Step(physicsDelta, physicsSteps);
+                syncPhysicsVisuals();
+
+                const transform = getChassisThreeTransform();
+                if (transform) controls.target.lerp(transform.position, 0.1);
+            }
+
+            updateRotorAnimations(delta);
+            updateSliderAnimations(delta);
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // Handle Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+    </script>
+</body>
+
+</html>
