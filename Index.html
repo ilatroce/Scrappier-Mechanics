@@ -593,6 +593,12 @@
                     <input id="slider-delay-slider" type="range" min="0" max="5" step="0.25" value="0"
                         class="range-input slider">
                     <div class="control-row">
+                        <span class="control-label">Slider Rotation</span>
+                        <span id="slider-rotation-display" class="control-value">0 deg</span>
+                    </div>
+                    <input id="slider-rotation-slider" type="range" min="-180" max="180" step="15" value="0"
+                        class="range-input slider">
+                    <div class="control-row">
                         <span class="control-label">Slider Speed</span>
                         <span id="slider-speed-display" class="control-value">2 blocks/s</span>
                     </div>
@@ -743,6 +749,7 @@
         let rotorDelay = 0;
         let rotorSpeed = 90;
         let sliderDelay = 0;
+        let sliderRotation = 0;
         let sliderSpeed = 2;
         let parts = []; // Stores { id, type, mesh, pos, normal, rot, parentId }
         let nextPartId = 1;
@@ -775,6 +782,8 @@
         const sliderTargetSelect = document.getElementById('slider-target-select');
         const sliderDelaySlider = document.getElementById('slider-delay-slider');
         const sliderDelayDisplay = document.getElementById('slider-delay-display');
+        const sliderRotationSlider = document.getElementById('slider-rotation-slider');
+        const sliderRotationDisplay = document.getElementById('slider-rotation-display');
         const sliderSpeedSlider = document.getElementById('slider-speed-slider');
         const sliderSpeedDisplay = document.getElementById('slider-speed-display');
         const vehicleFileInput = document.getElementById('vehicle-file-input');
@@ -794,6 +803,19 @@
 
         function formatSeconds(value) {
             return Number(value).toFixed(2).replace(/\.?0+$/, '');
+        }
+
+        function getSurfaceAlignedQuaternion(normal, twistDegrees = 0) {
+            const surfaceNormal = (normal || new THREE.Vector3(0, 1, 0)).clone();
+            if (surfaceNormal.lengthSq() === 0) surfaceNormal.set(0, 1, 0);
+            surfaceNormal.normalize();
+
+            const baseRotation = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), surfaceNormal);
+            const twist = new THREE.Quaternion().setFromAxisAngle(
+                surfaceNormal,
+                THREE.MathUtils.degToRad(Number.isFinite(twistDegrees) ? twistDegrees : 0)
+            );
+            return twist.multiply(baseRotation).normalize();
         }
 
         function getSelectedRotor() {
@@ -867,15 +889,24 @@
         function getActiveSliderSettings() {
             const selectedSlider = getSelectedSlider();
             if (selectedSlider) return getSliderSettings(selectedSlider);
-            return { delay: sliderDelay, speed: sliderSpeed };
+            return { delay: sliderDelay, rotation: sliderRotation, speed: sliderSpeed };
+        }
+
+        function applySliderRotation(slider, rotation) {
+            if (!slider) return;
+            slider.rot = getSurfaceAlignedQuaternion(slider.normal || new THREE.Vector3(0, 1, 0), rotation);
+            updatePartVisuals(slider);
         }
 
         function setActiveSliderSetting(key, value) {
             const selectedSlider = getSelectedSlider();
             if (selectedSlider) {
                 selectedSlider.settings = { ...getSliderSettings(selectedSlider), [key]: value };
+                if (key === 'rotation') applySliderRotation(selectedSlider, value);
             } else if (key === 'delay') {
                 sliderDelay = value;
+            } else if (key === 'rotation') {
+                sliderRotation = value;
             } else if (key === 'speed') {
                 sliderSpeed = value;
             }
@@ -913,8 +944,10 @@
         function updateSliderSettingsDisplay() {
             const settings = getActiveSliderSettings();
             sliderDelayDisplay.innerText = `${formatSeconds(settings.delay)}s`;
+            sliderRotationDisplay.innerText = `${settings.rotation} deg`;
             sliderSpeedDisplay.innerText = `${formatSeconds(settings.speed)} blocks/s`;
             sliderDelaySlider.value = settings.delay;
+            sliderRotationSlider.value = settings.rotation;
             sliderSpeedSlider.value = settings.speed;
         }
 
@@ -1115,7 +1148,7 @@
             mesh.add(leftRail, rightRail, arrowShaft, arrowHead);
         }
 
-        function createPartMesh(type, variantKey = 'standard', normal = null) {
+        function createPartMesh(type, variantKey = 'standard', normal = null, sliderTwistDegrees = 0) {
             const material = materials[type] || materials.block;
             const mesh = new THREE.Mesh(createGeometryForPart(type, variantKey), material);
             if (type === 'thruster') {
@@ -1128,7 +1161,11 @@
                 addSliderDetails(mesh, variantKey);
             }
             if (normal && type !== 'block' && type !== 'core') {
-                mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+                if (type === 'slider') {
+                    mesh.quaternion.copy(getSurfaceAlignedQuaternion(normal, sliderTwistDegrees));
+                } else {
+                    mesh.quaternion.copy(getSurfaceAlignedQuaternion(normal));
+                }
             }
             return mesh;
         }
@@ -1453,6 +1490,7 @@
                     },
                     defaultSliderSettings: {
                         delay: sliderDelay,
+                        rotation: sliderRotation,
                         speed: sliderSpeed
                     }
                 },
@@ -1551,9 +1589,10 @@
             };
         }
 
-        function normalizeSliderSettings(source = {}) {
+        function normalizeSliderSettings(source = {}, fallbackRotation = sliderRotation) {
             return {
                 delay: clampNumber(source.delay, 0, 5, sliderDelay),
+                rotation: clampNumber(source.rotation ?? source.angle ?? source.directionAngle, -180, 180, fallbackRotation),
                 speed: clampNumber(source.speed, 0.25, 6, sliderSpeed)
             };
         }
@@ -1580,6 +1619,15 @@
             const normalizedParts = [];
             let hasCore = false;
             let nextImportedPartId = 1;
+            const settings = rawDocument.settings || rawDocument.vehicleSettings || {};
+            const rotorDefaults = settings.defaultRotorSettings || settings.rotorDefaults || rawDocument.defaultRotorSettings || {};
+            const sliderDefaults = settings.defaultSliderSettings || settings.sliderDefaults || rawDocument.defaultSliderSettings || {};
+            const importedSliderRotation = clampNumber(
+                sliderDefaults.rotation ?? settings.sliderRotation ?? rawDocument.sliderRotation,
+                -180,
+                180,
+                sliderRotation
+            );
 
             sourceParts.forEach((part, index) => {
                 if (!part || typeof part !== 'object') return;
@@ -1609,7 +1657,7 @@
                     parentIdSource: part.parentId ?? part.parent ?? null,
                     settings: type === 'rotor'
                         ? normalizeRotorSettings(part.rotorSettings || part.settings || {})
-                        : (type === 'slider' ? normalizeSliderSettings(part.sliderSettings || part.settings || {}) : null)
+                        : (type === 'slider' ? normalizeSliderSettings(part.sliderSettings || part.settings || {}, importedSliderRotation) : null)
                 });
             });
 
@@ -1627,10 +1675,6 @@
                 return a.id - b.id;
             });
 
-            const settings = rawDocument.settings || rawDocument.vehicleSettings || {};
-            const rotorDefaults = settings.defaultRotorSettings || settings.rotorDefaults || rawDocument.defaultRotorSettings || {};
-            const sliderDefaults = settings.defaultSliderSettings || settings.sliderDefaults || rawDocument.defaultSliderSettings || {};
-
             return {
                 parts: normalizedParts,
                 settings: {
@@ -1639,6 +1683,7 @@
                     rotorDelay: clampNumber(rotorDefaults.delay ?? settings.rotorDelay ?? rawDocument.rotorDelay, 0, 5, rotorDelay),
                     rotorSpeed: clampNumber(rotorDefaults.speed ?? settings.rotorSpeed ?? rawDocument.rotorSpeed, 15, 360, rotorSpeed),
                     sliderDelay: clampNumber(sliderDefaults.delay ?? settings.sliderDelay ?? rawDocument.sliderDelay, 0, 5, sliderDelay),
+                    sliderRotation: importedSliderRotation,
                     sliderSpeed: clampNumber(sliderDefaults.speed ?? settings.sliderSpeed ?? rawDocument.sliderSpeed, 0.25, 6, sliderSpeed)
                 }
             };
@@ -1709,12 +1754,14 @@
             rotorDelay = vehicle.settings.rotorDelay;
             rotorSpeed = vehicle.settings.rotorSpeed;
             sliderDelay = vehicle.settings.sliderDelay;
+            sliderRotation = vehicle.settings.sliderRotation;
             sliderSpeed = vehicle.settings.sliderSpeed;
             powerSlider.value = powerLevel;
             rotorAngleSlider.value = rotorAngle;
             rotorDelaySlider.value = rotorDelay;
             rotorSpeedSlider.value = rotorSpeed;
             sliderDelaySlider.value = sliderDelay;
+            sliderRotationSlider.value = sliderRotation;
             sliderSpeedSlider.value = sliderSpeed;
             budget = calculateBudgetForParts(parts);
 
@@ -1807,6 +1854,9 @@
         sliderDelaySlider.addEventListener('input', () => {
             setActiveSliderSetting('delay', Number(sliderDelaySlider.value));
         });
+        sliderRotationSlider.addEventListener('input', () => {
+            setActiveSliderSetting('rotation', Number(sliderRotationSlider.value));
+        });
         sliderSpeedSlider.addEventListener('input', () => {
             setActiveSliderSetting('speed', Number(sliderSpeedSlider.value));
         });
@@ -1869,7 +1919,11 @@
                     ghostMesh.quaternion.identity();
                 } else {
                     ghostMesh.geometry = createGeometryForPart(currentTool, variantKey);
-                    ghostMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+                    if (currentTool === 'slider') {
+                        ghostMesh.quaternion.copy(getSurfaceAlignedQuaternion(normal, getActiveSliderSettings().rotation));
+                    } else {
+                        ghostMesh.quaternion.copy(getSurfaceAlignedQuaternion(normal));
+                    }
                 }
 
                 if (currentTool === 'thruster') {
@@ -1917,7 +1971,12 @@
                     // Check if space occupied
                     if (parts.some(p => partsOverlap(p.pos, getPartAxisHalfExtents(p.type, p.variant || 'standard', p.normal || normal), pos, newExtents))) return;
 
-                    const mesh = createPartMesh(currentTool, variantKey, normal);
+                    const mesh = createPartMesh(
+                        currentTool,
+                        variantKey,
+                        normal,
+                        currentTool === 'slider' ? getActiveSliderSettings().rotation : 0
+                    );
 
                     mesh.position.copy(pos);
                     mesh.castShadow = true;
@@ -2434,6 +2493,7 @@
             const settings = part.settings || {};
             return {
                 delay: Number.isFinite(settings.delay) ? settings.delay : sliderDelay,
+                rotation: Number.isFinite(settings.rotation) ? settings.rotation : sliderRotation,
                 speed: Number.isFinite(settings.speed) ? settings.speed : sliderSpeed
             };
         }
